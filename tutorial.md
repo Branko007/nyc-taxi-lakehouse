@@ -608,4 +608,266 @@ docker run --rm \
   --year 2023 --month 5
 ```
 
+Nota: Reemplaza `nyc-taxi-lakehouse-raw-TU-NOMBRE` con el nombre real de tu bucket si es diferente.
+
+¿Qué debería pasar?
+
+1. Docker arranca.
+2. Python dentro de Docker ve el archivo JSON montado en `/app/gcp_credentials`.
+
+3. Descarga Mayo 2023 `(2023-05)`.
+
+4. Procesa y sube a GCS.
+
+5. El contenedor se autodestruye (`--rm`) al terminar.
+
+
 Resultado: Si ves los logs de descarga y subida exitosa, ¡felicidades! Tienes una aplicación de datos blindada, portable y lista para ser orquestada por Airflow.
+
+# 🌪️ Fase 6: Orquestación con Apache Airflow
+
+¡Bienvenido al corazón del Data Engineering! Ya tienes tu "robot" (Docker) que descarga datos, pero... ¿quién lo despierta? ¿Quién vigila que no falle? ¿Quién programa las ejecuciones automáticas?
+
+## 🎯 ¿Qué es Apache Airflow?
+
+**Apache Airflow** es un orquestador de tareas que te permite:
+- ✅ Ejecutar procesos de forma automática
+- ✅ Programar tareas recurrentes (diarias, mensuales, etc.)
+- ✅ Monitorear ejecuciones y gestionar errores
+- ✅ Visualizar flujos de trabajo
+
+---
+
+## 🤔 ¿Por qué NO instalarlo directamente?
+
+En lugar de hacer `pip install apache-airflow`, usaremos **Docker Compose**. Déjame explicarte por qué.
+
+### 🥊 Instalación Local vs Docker Compose
+
+Imagina que quieres montar un restaurante (tu proyecto de datos).
+
+### ❌ Opción A: Instalación Local (`pip install`)
+
+Es como montar el restaurante **en la cocina de tu casa**.
+
+**Problemas:**
+
+1. **Conflicto de dependencias** 🔥
+   - Airflow necesita más de 100 librerías específicas
+   - Si tienes un proyecto con `pandas v2.0` y Airflow necesita `pandas v1.5`, habrá conflicto
+   - Al instalar Airflow, sobrescribirá tus librerías y romperá otros proyectos
+
+2. **Infraestructura incompleta** 🧩
+   - Airflow necesita varios componentes:
+     - Webserver (interfaz visual)
+     - Scheduler (ejecutor de tareas)
+     - Base de datos (PostgreSQL)
+   - Con `pip install` solo instalas el código Python
+   - Debes instalar y configurar PostgreSQL manualmente
+
+3. **"En mi máquina funcionaba"** 💻
+   - Si cambias de PC o colaboras con alguien, deberán repetir toda la instalación
+   - Diferencias entre sistemas operativos causarán problemas
+
+### ✅ Opción B: Docker Compose (La Opción Profesional)
+
+Es como alquilar un **Food Truck totalmente equipado**.
+
+**Ventajas:**
+
+1. **Aislamiento total** 🎯
+   - Cada contenedor tiene sus propias dependencias
+   - Airflow puede usar `pandas v1.5` mientras tu máquina usa `pandas v2.0`
+   - No hay conflictos entre proyectos
+
+2. **Infraestructura completa** 📦
+   - Un solo comando levanta:
+     - PostgreSQL
+     - Airflow Webserver
+     - Airflow Scheduler
+   - Todo conectado y configurado automáticamente
+
+3. **Portabilidad** 🌍
+   - El archivo `docker-compose.yaml` funciona igual en cualquier máquina
+   - Comparte el archivo y cualquiera puede replicar tu entorno
+
+4. **Limpieza** 🧹
+   - ¿Terminaste el proyecto? → `docker compose down`
+   - Tu máquina queda como nueva, sin archivos residuales
+
+---
+
+## 🛠️ Paso 1: Crear el archivo docker-compose.yaml
+
+En la raíz de tu proyecto `nyc-taxi-lakehouse`, crea un archivo llamado **docker-compose.yaml**.
+
+```yaml
+x-airflow-common:
+  &airflow-common
+  # Usamos la imagen oficial extendida (la crearemos en breve) o la estándar
+  # Por ahora usaremos la estándar, pero inyectando la librería de Docker
+  image: apache/airflow:2.7.3
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
+    # Esta variable instala el proveedor de Docker al arrancar (Truco para Dev)
+    _PIP_ADDITIONAL_REQUIREMENTS: apache-airflow-providers-docker
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - ./gcp_credentials:/opt/airflow/gcp_credentials
+    # 🔥 TRUCO SENIOR: Mapeamos el socket de Docker
+    # Esto permite que Airflow (dentro de un contenedor) pueda crear HERMANOS contenedores
+    - /var/run/docker.sock:/var/run/docker.sock
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    - postgres
+
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    restart: always
+
+  airflow-init:
+    <<: *airflow-common
+    command: version
+    environment:
+      <<: *airflow-common-env
+      _PIP_ADDITIONAL_REQUIREMENTS: ''
+      _AIRFLOW_DB_UPGRADE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-admin}
+    user: "0:0"
+    volumes:
+      - .:/sources
+
+volumes:
+  postgres-db-volume:
+```
+
+---
+
+## 📖 Entendiendo el archivo docker-compose.yaml
+
+### 1️⃣ Bloque `x-airflow-common` (Configuración Base)
+
+Este bloque define configuraciones reutilizables para evitar repetir código.
+
+**Elementos clave:**
+
+- **`_PIP_ADDITIONAL_REQUIREMENTS`**: Instala librerías adicionales al iniciar el contenedor
+- **Volúmenes**:
+  - `./dags:/opt/airflow/dags` → Sincroniza tus DAGs locales con Airflow
+  - `./gcp_credentials` → Inyecta credenciales de Google Cloud
+  - **`/var/run/docker.sock`** 🔥 → **Truco avanzado**: Permite que Airflow controle Docker desde dentro del contenedor (Docker out of Docker)
+
+### 2️⃣ Servicios
+
+**`postgres`** (La Memoria)
+- Base de datos que almacena el historial de ejecuciones de Airflow
+- Guarda qué tareas se ejecutaron, cuáles fallaron, etc.
+
+**`airflow-scheduler`** (El Corazón)
+- Monitorea los DAGs y decide cuándo ejecutar tareas
+- Si este servicio falla, nada se ejecuta
+
+**`airflow-webserver`** (La Interfaz)
+- Interfaz gráfica en el puerto 8080
+- Te permite visualizar y controlar tus flujos de trabajo
+
+**`airflow-init`** (El Configurador)
+- Se ejecuta una sola vez al inicio
+- Prepara la base de datos y crea el usuario admin
+
+---
+
+## 🚀 Paso 2: Preparar el entorno
+
+Antes de iniciar Airflow, necesitas crear las carpetas necesarias y configurar permisos.
+
+### Crear directorios
+
+```bash
+mkdir -p logs plugins
+```
+
+### Configurar ID de usuario
+
+Agrega esta línea a tu archivo `.env`:
+
+```
+AIRFLOW_UID=1000
+```
+
+> **Nota:** Esto evita errores de permisos. Puedes verificar tu UID con el comando `id -u`.
+
+---
+
+## 🚦 Paso 3: Iniciar Airflow
+
+### 1. Inicializar la base de datos
+
+```bash
+docker compose up airflow-init
+```
+
+Espera hasta ver el mensaje **"User admin created"** y que termine con código 0.
+
+### 2. Levantar todos los servicios
+
+```bash
+docker compose up -d
+```
+
+El flag `-d` ejecuta los contenedores en segundo plano.
+
+---
+
+## 🎉 Paso 4: Acceder a Airflow
+
+Abre tu navegador y ve a: **http://localhost:8080**
+
+**Credenciales:**
+- **Usuario:** `admin`
+- **Contraseña:** `admin`
+
+Si ves la interfaz de Airflow, ¡felicidades! 🎊 Ya tienes tu orquestador listo para crear DAGs.
+
+---
+
+## 📝 Resumen
+
+✅ Configuraste Apache Airflow usando Docker Compose  
+✅ Levantaste una infraestructura profesional con PostgreSQL, Scheduler y Webserver  
+✅ Evitaste conflictos de dependencias y problemas de configuración  
+✅ Ahora puedes orquestar tus pipelines de datos de forma automatizada  
+
+**Próximo paso:** Crear tu primer DAG para ejecutar el contenedor de ingestión automáticamente.
