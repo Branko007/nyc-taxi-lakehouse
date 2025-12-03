@@ -478,3 +478,134 @@ git push
 ```
 
 ¡Excelente trabajo! Has construido la primera tubería de datos de tu Lakehouse. 🚀
+
+## 🐳 Fase 5: Dockerización y CLI (Hacia Producción)
+
+Hasta ahora, hemos ejecutado el script manualmente cambiando las variables en el código. Pero en un entorno profesional (como Airflow), **nadie edita código para correr un proceso**. Los scripts deben ser flexibles y portátiles.
+
+En esta fase haremos dos cosas cruciales:
+1.  **Refactorizar a CLI:** Convertir el script en una herramienta de línea de comandos que acepte argumentos (ej: `--year 2024`).
+2.  **Containerizar:** Empaquetar todo en **Docker** para que funcione idéntico en tu PC, en un servidor o en la nube.
+
+### 1. Refactorización: De Script a CLI
+
+Vamos a modificar **solamente el bloque final** de `src/ingestion/ingest_manager.py`. Usaremos la librería nativa `argparse` para que el script "escuche" parámetros externos.
+
+Reemplaza el bloque `if __name__ == "__main__":` (al final del archivo) con este código:
+
+```python
+import argparse # Asegúrate de importar esto al inicio del archivo
+
+# ... (El código de la clase TaxiIngestor NO CAMBIA) ...
+
+if __name__ == "__main__":
+    # 1. Configuración de Argumentos CLI (Interfaz de Línea de Comandos)
+    # Esto permite ejecutar: python script.py --year 2024 --month 2
+    parser = argparse.ArgumentParser(description="Ingestión de datos de NYC Taxi a GCS")
+    parser.add_argument("--year", type=int, required=True, help="Año de los datos (ej. 2024)")
+    parser.add_argument("--month", type=int, required=True, help="Mes de los datos (1-12)")
+    
+    args = parser.parse_args()
+
+    # 2. Carga de entorno
+    load_dotenv()
+    BUCKET = os.getenv("GCS_BUCKET_NAME")
+    if not BUCKET:
+        raise ValueError("GCS_BUCKET_NAME no definido en .env")
+
+    # 3. Ejecución Dinámica con los argumentos recibidos
+    ingestor = TaxiIngestor(bucket_name=BUCKET)
+    
+    try:
+        logging.info(f"📅 Iniciando proceso para {args.year}-{args.month:02d}")
+        
+        raw_file = ingestor.download_data(args.year, args.month)
+        processed_file = ingestor.validate_and_transform(raw_file)
+        
+        # Particionamiento Hive
+        gcs_path = f"raw/yellow_tripdata/{args.year}/{args.month:02d}/data.parquet"
+        
+        ingestor.upload_to_gcs(processed_file, gcs_path)
+        ingestor.clean_local(raw_file, processed_file)
+        
+    except Exception as e:
+        logging.critical(f"💀 Fallo el proceso: {e}")
+        exit(1)
+```
+Prueba local: Ahora tu script exige parámetros.
+
+```bash
+uv run src/ingestion/ingest_manager.py --year 2024 --month 2
+```
+Esto debería descargar Febrero 2024 y subirlo al bucket `nyc-taxi-lakehouse-raw-branko/raw/yellow_tripdata/2024/02/data.parquet` .
+
+### 2. Creando la Receta (Dockerfile)
+Un contenedor Docker es como una "caja virtual" que contiene tu código y todas sus dependencias (Python, librerías, sistema operativo base). Esto elimina el famoso problema de "en mi máquina funcionaba".
+
+Crea un archivo llamado Dockerfile (sin extensión) en la raíz del proyecto:
+
+```docker
+# 1. Imagen Base: Usamos Python 3.10 versión "slim" (ligera y segura)
+FROM python:3.10-slim
+
+# 2. Configuración de entorno para evitar archivos basura (.pyc) y logs retenidos
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_SYSTEM_PYTHON=1
+
+# 3. Instalamos dependencias del sistema mínimas
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 4. Instalamos uv copiándolo de su imagen oficial (Patrón Best Practice)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# 5. Directorio de trabajo dentro del contenedor
+WORKDIR /app
+
+# 6. Copiamos las definiciones de dependencias PRIMERO
+# Esto permite a Docker usar la caché. Si no cambias dependencias, este paso no se repite.
+COPY pyproject.toml uv.lock ./
+
+# 7. Instalamos las librerías en el sistema del contenedor
+RUN uv pip install --system -r pyproject.toml
+
+# 8. Copiamos el código fuente de nuestra aplicación
+COPY src/ ./src/
+
+# 9. Definimos el comando por defecto al iniciar
+ENTRYPOINT ["python", "src/ingestion/ingest_manager.py"]
+```
+
+
+### 3. Build & Run (Construir y Ejecutar)
+
+#### Ahora vamos a convertir esa receta en una imagen real y a ejecutarla.
+
+A. Build (Construir la imagen)
+Este comando lee el Dockerfile y crea una imagen llamada `nyc-taxi-ingestor`. El punto final `.` le dice a Docker "busca los archivos aquí".
+
+```bash
+docker build -t nyc-taxi-ingestor:v1 .
+```
+
+B. Run (Correr el contenedor)
+
+Aquí está el truco. El contenedor es aislado: no tiene acceso a tus archivos, ni a tus credenciales de Google, ni a tu archivo `.env`. Tenemos que "inyectárselos".
+
+- `v $(pwd)/gcp_credentials:/app/gcp_credentials`: (Volumen) Conecta tu carpeta de credenciales local con una carpeta dentro del contenedor. Es como conectar un USB virtual.
+
+- `e VARIABLE=...`: (Environment) Le pasa las variables de entorno necesarias manualmente.
+
+```bash
+docker run --rm \
+  --network host \
+  -v $(pwd)/gcp_credentials:/app/gcp_credentials \
+  -e GOOGLE_APPLICATION_CREDENTIALS=/app/gcp_credentials/terraform-key.json \
+  -e GCS_BUCKET_NAME="nyc-taxi-lakehouse-raw-TU-NOMBRE" \
+  nyc-taxi-ingestor:v1 \
+  --year 2023 --month 5
+```
+
+Resultado: Si ves los logs de descarga y subida exitosa, ¡felicidades! Tienes una aplicación de datos blindada, portable y lista para ser orquestada por Airflow.

@@ -6,6 +6,7 @@ from google.cloud import storage
 from datetime import datetime
 from dotenv import load_dotenv
 import sys
+import argparse
 
 # Configuración básica de Logging
 logging.basicConfig(
@@ -108,32 +109,33 @@ class TaxiIngestor:
         logging.info("🧹 Limpieza de archivos temporales completada.")
 
 if __name__ == "__main__":
-    # Cargar variables de entorno
-    load_dotenv()
+    # 1. Configuración de Argumentos CLI
+    parser = argparse.ArgumentParser(description="Ingestión de datos de NYC Taxi a GCS")
+    parser.add_argument("--year", type=int, required=True, help="Año de los datos (ej. 2024)")
+    parser.add_argument("--month", type=int, required=True, help="Mes de los datos (1-12)")
     
+    args = parser.parse_args()
+
+    # 2. Carga de entorno
+    load_dotenv()
     BUCKET = os.getenv("GCS_BUCKET_NAME")
     if not BUCKET:
-        raise ValueError("La variable GCS_BUCKET_NAME no está definida en .env")
+        raise ValueError("GCS_BUCKET_NAME no definido en .env")
 
-    # Ejecución de prueba
+    # 3. Ejecución Dinámica
     ingestor = TaxiIngestor(bucket_name=BUCKET)
     
-    # Probamos con Enero 2024 (Yellow Taxis)
-    YEAR = 2024
-    MONTH = 1
-    
     try:
-        raw_file = ingestor.download_data(YEAR, MONTH)
+        logging.info(f"📅 Iniciando proceso para {args.year}-{args.month:02d}")
+        
+        raw_file = ingestor.download_data(args.year, args.month)
         processed_file = ingestor.validate_and_transform(raw_file)
         
-        # Estructura de carpeta tipo Hive: year=YYYY/month=MM/file.parquet
-        gcs_path = f"raw/yellow_tripdata/{YEAR}/{MONTH:02d}/data.parquet"
+        gcs_path = f"raw/yellow_tripdata/{args.year}/{args.month:02d}/data.parquet"
         
         ingestor.upload_to_gcs(processed_file, gcs_path)
-        
-        # Limpieza
         ingestor.clean_local(raw_file, processed_file)
         
-    except Exception as main_error:
-        logging.critical(f"💀 El proceso falló: {main_error}")
+    except Exception as e:
+        logging.critical(f"💀 Fallo el proceso: {e}")
         exit(1)
