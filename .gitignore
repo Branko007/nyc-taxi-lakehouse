@@ -1,0 +1,23 @@
+# --- Python & Virtual Environments ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+.python-version
+
+# --- OS & Editor Config ---
+.DS_Store
+.vscode/
+.idea/
+
+# --- Google Cloud & Secrets (¡CRÍTICO!) ---
+gcp_credentials/
+*.json
+.env
+
+# --- Terraform ---
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+terraform.tfvars
