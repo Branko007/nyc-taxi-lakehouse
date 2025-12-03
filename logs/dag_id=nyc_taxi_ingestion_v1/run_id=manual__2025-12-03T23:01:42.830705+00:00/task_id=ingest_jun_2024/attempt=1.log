@@ -1,0 +1,25 @@
+[2025-12-03T23:01:45.127+0000] {taskinstance.py:1159} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: nyc_taxi_ingestion_v1.ingest_jun_2024 manual__2025-12-03T23:01:42.830705+00:00 [queued]>
+[2025-12-03T23:01:45.167+0000] {taskinstance.py:1159} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: nyc_taxi_ingestion_v1.ingest_jun_2024 manual__2025-12-03T23:01:42.830705+00:00 [queued]>
+[2025-12-03T23:01:45.167+0000] {taskinstance.py:1361} INFO - Starting attempt 1 of 2
+[2025-12-03T23:01:45.211+0000] {taskinstance.py:1382} INFO - Executing <Task(DockerOperator): ingest_jun_2024> on 2025-12-03 23:01:42.830705+00:00
+[2025-12-03T23:01:45.242+0000] {standard_task_runner.py:57} INFO - Started process 372 to run task
+[2025-12-03T23:01:45.251+0000] {standard_task_runner.py:84} INFO - Running: ['***', 'tasks', 'run', 'nyc_taxi_ingestion_v1', 'ingest_jun_2024', 'manual__2025-12-03T23:01:42.830705+00:00', '--job-id', '7', '--raw', '--subdir', 'DAGS_FOLDER/ingest_dag.py', '--cfg-path', '/tmp/tmp80pz1cbl']
+[2025-12-03T23:01:45.279+0000] {standard_task_runner.py:85} INFO - Job 7: Subtask ingest_jun_2024
+[2025-12-03T23:01:45.440+0000] {logging_mixin.py:154} WARNING - /home/***/.local/lib/python3.8/site-packages/***/settings.py:195 DeprecationWarning: The sql_alchemy_conn option in [core] has been moved to the sql_alchemy_conn option in [database] - the old setting has been used, but please update your config.
+[2025-12-03T23:01:45.629+0000] {task_command.py:416} INFO - Running <TaskInstance: nyc_taxi_ingestion_v1.ingest_jun_2024 manual__2025-12-03T23:01:42.830705+00:00 [running]> on host 1e63a6b9eead
+[2025-12-03T23:01:45.974+0000] {taskinstance.py:1662} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='branko' AIRFLOW_CTX_DAG_ID='nyc_taxi_ingestion_v1' AIRFLOW_CTX_TASK_ID='ingest_jun_2024' AIRFLOW_CTX_EXECUTION_DATE='2025-12-03T23:01:42.830705+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='manual__2025-12-03T23:01:42.830705+00:00'
+[2025-12-03T23:01:46.160+0000] {docker.py:343} INFO - Starting docker container from image nyc-taxi-ingestor:v1
+[2025-12-03T23:01:48.303+0000] {docker.py:413} INFO - /usr/local/lib/python3.10/site-packages/google/api_core/_python_version_support.py:266: FutureWarning: You are using a Python version (3.10.19) which Google will stop supporting in new releases of google.api_core once it reaches its end of life (2026-10-04). Please upgrade to the latest Python version, or at least Python 3.11, to continue receiving updates for google.api_core past that date.
+  warnings.warn(message, FutureWarning)
+[2025-12-03T23:01:48.610+0000] {docker.py:413} INFO - 2025-12-03 23:01:48,609 - INFO - 🔧 Ingestor inicializado para bucket: nyc-taxi-lakehouse-raw-branko
+2025-12-03 23:01:48,609 - INFO - 📅 Iniciando proceso para 2024-06
+2025-12-03 23:01:48,609 - INFO - ⬇️ Iniciando descarga desde: https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-06.parquet
+[2025-12-03T23:02:09.301+0000] {docker.py:413} INFO - 2025-12-03 23:02:09,299 - INFO - ✅ Archivo descargado en: /tmp/yellow_tripdata_2024-06.parquet
+[2025-12-03T23:02:09.303+0000] {docker.py:413} INFO - 2025-12-03 23:02:09,302 - INFO - 🔄 Validando y procesando con Polars...
+[2025-12-03T23:02:11.820+0000] {docker.py:413} INFO - 2025-12-03 23:02:11,819 - INFO - ✨ Transformación completada. Filas procesadas.
+[2025-12-03T23:02:11.821+0000] {docker.py:413} INFO - 2025-12-03 23:02:11,819 - INFO - ☁️ Subiendo /tmp/yellow_tripdata_2024-06_processed.parquet a gs://nyc-taxi-lakehouse-raw-branko/raw/yellow_tripdata/2024/06/data.parquet
+[2025-12-03T23:02:27.068+0000] {docker.py:413} INFO - 2025-12-03 23:02:27,067 - INFO - 🚀 Carga a GCS exitosa.
+[2025-12-03T23:02:27.081+0000] {docker.py:413} INFO - 2025-12-03 23:02:27,080 - INFO - 🧹 Limpieza de archivos temporales completada.
+[2025-12-03T23:02:27.408+0000] {taskinstance.py:1400} INFO - Marking task as SUCCESS. dag_id=nyc_taxi_ingestion_v1, task_id=ingest_jun_2024, execution_date=20251203T230142, start_date=20251203T230145, end_date=20251203T230227
+[2025-12-03T23:02:27.450+0000] {local_task_job_runner.py:228} INFO - Task exited with return code 0
+[2025-12-03T23:02:27.487+0000] {taskinstance.py:2778} INFO - 0 downstream tasks scheduled from follow-on schedule check

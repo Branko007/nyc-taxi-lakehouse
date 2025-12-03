@@ -861,6 +861,8 @@ Abre tu navegador y ve a: **http://localhost:8080**
 
 Si ves la interfaz de Airflow, ¡felicidades! 🎊 Ya tienes tu orquestador listo para crear DAGs.
 
+¡No olvides realizar un commit del avance!
+
 ---
 
 ## 📝 Resumen
@@ -871,3 +873,143 @@ Si ves la interfaz de Airflow, ¡felicidades! 🎊 Ya tienes tu orquestador list
 ✅ Ahora puedes orquestar tus pipelines de datos de forma automatizada  
 
 **Próximo paso:** Crear tu primer DAG para ejecutar el contenedor de ingestión automáticamente.
+
+
+## 🌪️ Fase 7: Tu Primer DAG 
+
+Ahora crearemos el DAG (Directed Acyclic Graph) que le dirá a Airflow cómo ejecutar nuestro contenedor de ingestión.
+
+**Reto Técnico:** Airflow corre dentro de Docker. Para que pueda lanzar *otro* contenedor (nuestro script), necesitamos configurar **Docker out of Docker (DooD)** y gestionar correctamente los permisos y variables de entorno.
+
+### 1. Configuración de Permisos (WSL/Linux)
+
+Airflow necesita comunicarse con el "cerebro" de Docker (`docker.sock`) de tu máquina anfitriona. Por defecto, este archivo solo lo puede usar `root`. Necesitamos abrir los permisos para que el usuario `airflow` no sea rechazado.
+
+Ejecuta este comando en tu terminal (WSL):
+
+```bash
+sudo chmod 666 /var/run/docker.sock
+```
+
+#### ⚠️ Nota: Este comando permite que cualquier usuario en tu máquina controle Docker. Es estándar para entornos de desarrollo local, pero requiere precaución en servidores productivos compartidos.
+---
+
+### 3. El Código del DAG (`dags/ingest_dag.py`)
+Crea este archivo en la carpeta `dags/`. Este código:
+
+1. Obtiene la ruta absoluta de tu proyecto (necesario para montar volúmenes).
+
+2. Lee el nombre del Bucket desde el `.env`.
+
+3. Usa `DockerOperator` para lanzar el contenedor de ingestión de forma efímera.
+
+IMPORTANTE: Antes de guardar, ejecuta `pwd` en tu terminal y actualiza la variable `PROJECT_PATH` en el código
+
+```python
+
+from datetime import datetime, timedelta
+from airflow import DAG
+from airflow.providers.docker.operators.docker import DockerOperator
+from docker.types import Mount
+import os 
+
+# --- CONFIGURACIÓN ---
+# Aqui deberías pegar el resultaltado obtenido luego de ejecutar pwd en la raiz de tu proyecto
+PROJECT_PATH = "/home/TU_USUARIO/projects/nyc-taxi-lakehouse" 
+
+# 👇 LEEMOS LA CONFIGURACIÓN DEL ENTORNO
+# Si no encuentra la variable, lanzamos error para fallar rápido (Fail Fast)
+BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
+if not BUCKET_NAME:
+    raise ValueError("❌ Error Crítico: GCS_BUCKET_NAME no está definido en el entorno de Airflow.")
+
+default_args = {
+    'owner': 'branko',
+    'depends_on_past': False,
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+with DAG(
+    'nyc_taxi_ingestion_v1',
+    default_args=default_args,
+    description='Ingestión mensual de datos de NYC Taxi usando Docker',
+    schedule_interval='@monthly', # Ejecutar una vez al mes
+    start_date=datetime(2023, 1, 1),
+    catchup=False, # No intentar ejecutar meses pasados automáticamente al inicio
+    tags=['ingestion', 'docker', 'nyc-lakehouse'],
+) as dag:
+
+    # Tarea: Ingestión de Junio 2024 (Hardcodeada por ahora para probar)
+    ingest_task = DockerOperator(
+        task_id='ingest_jun_2024',
+        image='nyc-taxi-ingestor:v1', # La imagen que construiste
+        api_version='auto',
+        auto_remove=True, # Borrar contenedor al terminar
+        
+        # El comando que ejecutará dentro del contenedor
+        # Airflow pasará esto al ENTRYPOINT
+        command="--year 2024 --month 6",
+        
+        # Configuración de red para salir a internet
+        network_mode="host", 
+        
+        # Montaje de volúmenes (Mapeo de Host -> Contenedor)
+        mounts=[
+            # Montamos las credenciales para que el script pueda leerlas
+            Mount(
+                source=f"{PROJECT_PATH}/gcp_credentials", 
+                target="/app/gcp_credentials", 
+                type="bind"
+            )
+        ],
+        environment={
+            # Ruta interna en el contenedor (Fija porque depende del mount target)
+            'GOOGLE_APPLICATION_CREDENTIALS': '/app/gcp_credentials/terraform-key.json',
+            'GCS_BUCKET_NAME': BUCKET_NAME 
+        },
+        docker_url="unix://var/run/docker.sock",
+    )
+
+    ingest_task
+```
+
+### 4. Ejecución y Verificación
+
+1. Ve a http://localhost:8080.
+
+2. Busca el DAG nyc_taxi_ingestion_v1.
+
+3. Actívalo (Toggle ON) y haz clic en el botón Play (Trigger DAG).
+
+4. Entra en la vista de Graph, haz clic en la tarea y selecciona Logs.
+
+---
+
+Si ves la tarea en **verde oscuro (Success)** en la interfaz de Airflow y confirmas que el archivo nuevo apareció en tu Google Cloud Storage, **¡has desbloqueado un logro nivel Senior!** 🏆
+
+Acabas de implementar con éxito una de las arquitecturas más complejas de orquestación local: **Docker-out-of-Docker (DooD)**.
+
+### 📝 Resumen de Hitos
+✅ **Infraestructura Avanzada:** Configuraste permisos de socket para permitir que Airflow controle el motor Docker del host.
+
+✅ **12-Factor App:** Desacoplaste la configuración (variables de entorno) del código, haciendo tu DAG portable y seguro.
+
+✅ **Automatización Real:** Tienes un pipeline que descarga, procesa y sube datos a la nube sin intervención humana.
+
+**Próximo paso:** Ahora que los datos están "crudos" en el Data Lake (GCS), necesitamos hacerlos consultables. En la siguiente fase, conectaremos **BigQuery** para leer estos archivos mediante Tablas Externas.
+
+**No te olvides de guardar tus avances:**
+
+```bash
+
+git add .
+git commit -m "feat: add airflow dag with docker operator"
+git push origin main
+
+```
+
+
+

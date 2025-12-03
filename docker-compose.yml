@@ -3,6 +3,8 @@ x-airflow-common:
   # Usamos la imagen oficial extendida (la crearemos en breve) o la estándar
   # Por ahora usaremos la estándar, pero inyectando la librería de Docker
   image: apache/airflow:2.7.3
+  env_file:
+    - .env
   environment:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
