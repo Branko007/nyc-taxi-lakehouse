@@ -41,7 +41,7 @@ with DAG(
         
         # El comando que ejecutará dentro del contenedor
         # Airflow pasará esto al ENTRYPOINT
-        command="--year 2024 --month 6",
+        command="--year 2024 --month 3",
         
         # Configuración de red para salir a internet
         network_mode="host", 

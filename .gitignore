@@ -21,3 +21,6 @@ gcp_credentials/
 *.tfstate
 *.tfstate.backup
 terraform.tfvars
+
+# --- Airflow Logs ---
+logs/

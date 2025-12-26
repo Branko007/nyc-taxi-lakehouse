@@ -289,7 +289,7 @@ Usaremos **Programación Orientada a Objetos (Clases)**. Esto hace que el códig
 Usaremos `uv add` para instalar y registrar las dependencias en `pyproject.toml` (como el `package.json` de Node.js).
 
 ```bash
-uv add requests polars google-cloud-storage python-dotenv pyarrow
+uv add "requests>=2.32.5" "polars>=1.35.2" "google-cloud-storage>=3.6.0" "python-dotenv>=1.2.1" "pyarrow>=22.0.0"
 ```
 
 ### Configuración (`.env`)
