@@ -123,10 +123,8 @@ source .venv/bin/activate
 # .venv\Scripts\activate
 
 # 4. Instalar librerías iniciales
-uv pip install polars pyarrow google-cloud-storage python-dotenv
+uv pip install "requests>=2.32.5" "polars>=1.35.2" "google-cloud-storage>=3.6.0" "python-dotenv>=1.2.1" "pyarrow>=22.0.0"
 ```
-
----
 
 ## ☁️ Fase 2: Configuración de Google Cloud (El "Bootstrap")
 
@@ -160,16 +158,16 @@ Define quién es el proveedor de nube (Google) y cómo autenticarse.
 terraform {
   required_providers {
     google = {
-      source  = "hashicorp/google"
-      version = "4.51.0"
+      source  = "hashicorp/google" # Origen del proveedor oficial de GCP
+      version = "4.51.0" # Se fija la versión para garantizar estabilidad y evitar cambios inesperados
     }
   }
 }
 
 provider "google" {
-  credentials = file("../../gcp_credentials/terraform-key.json")
-  project     = var.project_id
-  region      = var.region
+  credentials = file("../../gcp_credentials/terraform-key.json") # Ruta a tu key
+  project     = var.project_id # ID del proyecto de GCP
+  region      = var.region # Región de GCP
 }
 ```
 
@@ -197,7 +195,7 @@ variable "gcs_bucket_name" {
 variable "bq_dataset_name" {
   description = "Nombre del dataset de BigQuery"
   type        = string
-  default     = "nyc_taxi_wh"
+  default     = "nyc_taxi_bronze"
 }
 
 ```
@@ -213,7 +211,7 @@ resource "google_storage_bucket" "data_lake" {
   location      = var.region
   force_destroy = true # Permite borrar el bucket aunque tenga datos (útil para dev)
 
-  uniform_bucket_level_access = true
+  uniform_bucket_level_access = true # Sirve para que todos los archivos dentro del bucket tengan el mismo nivel de acceso
   
   versioning {
     enabled = true
@@ -229,13 +227,37 @@ resource "google_storage_bucket" "data_lake" {
   }
 }
 
-# Data Warehouse: BigQuery Dataset
+# Data Warehouse: BigQuery Dataset (Bronze Layer)
 resource "google_bigquery_dataset" "dataset" {
   dataset_id                 = var.bq_dataset_name
-  friendly_name              = "NYC Taxi DWH"
-  description                = "Dataset principal para el Lakehouse"
+  friendly_name              = "NYC Taxi DWH - Bronze"
+  description                = "Capa Bronze: Datos crudos y tablas externas"
   location                   = var.region
-  delete_contents_on_destroy = true # Cuidado en prod, útil aquí
+  delete_contents_on_destroy = true 
+}
+
+# Data Warehouse: BigQuery Dataset (Silver Layer)
+resource "google_bigquery_dataset" "silver_dataset" {
+  dataset_id                 = "nyc_taxi_silver"
+  friendly_name              = "NYC Taxi DWH - Silver"
+  description                = "Capa Silver: Datos limpios y deduplicados"
+  location                   = var.region
+  delete_contents_on_destroy = true
+}
+
+# Tabla Externa en BigQuery (Capa Bronze/Raw)
+resource "google_bigquery_table" "external_yellow_taxi" {
+  dataset_id = google_bigquery_dataset.dataset.dataset_id
+  table_id   = "external_yellow_taxi"
+  description = "Tabla externa que apunta a los datos crudos en GCS"
+  deletion_protection = false
+
+  external_data_configuration {
+    autodetect    = true
+    source_format = "PARQUET"
+    # El comodín * permite leer todos los archivos dentro de la estructura de carpetas
+    source_uris   = ["gs://${var.gcs_bucket_name}/raw/yellow_tripdata/*.parquet"]
+  }
 }
 
 ```
@@ -1026,7 +1048,6 @@ git push origin main
 
 ```
 
----
 
 ---
 
@@ -1035,7 +1056,7 @@ git push origin main
 En esta fase, conectamos nuestro Data Lake (GCS) con nuestro Data Warehouse (BigQuery). Lo haremos sin mover los archivos, usando **Tablas Externas**. Esto es lo que define un **Data Lakehouse**: la potencia analítica de SQL sobre la flexibilidad de un almacenamiento de objetos.
 
 ### 1. ¿Por qué renombrar los Datasets?
-Como Senior, buscamos que los nombres sean intuitivos. Cambiamos el dataset genérico por nombres que reflejen la **Arquitectura Medallion**:
+Como Data Engineer, buscamos que los nombres sean intuitivos. Cambiamos el dataset genérico por nombres que reflejen la **Arquitectura Medallion**:
 - `nyc_taxi_bronze`: Donde viven los datos crudos.
 - `nyc_taxi_silver`: Donde viven los datos limpios.
 
@@ -1227,7 +1248,7 @@ WORKDIR /usr/app/dbt_project
 ENTRYPOINT ["dbt"]
 ```
 
-> **💡 Nota Senior: ¿Por qué usar `uv` dentro de Docker?**
+> **💡 Nota: ¿Por qué usar `uv` dentro de Docker?**
 > Aunque podríamos usar `pip`, usamos `uv` por tres razones:
 > 1. **Consistencia**: Todo el proyecto usa `uv`, el Dockerfile no debe ser la excepción.
 > 2. **Velocidad**: `uv` reduce el tiempo de construcción de la imagen significativamente.

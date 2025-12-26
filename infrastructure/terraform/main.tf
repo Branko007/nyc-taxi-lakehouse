@@ -4,7 +4,7 @@ resource "google_storage_bucket" "data_lake" {
   location      = var.region
   force_destroy = true # Permite borrar el bucket aunque tenga datos (útil para dev)
 
-  uniform_bucket_level_access = true
+  uniform_bucket_level_access = true # Sirve para que todos los archivos dentro del bucket tengan el mismo nivel de acceso
   
   versioning {
     enabled = true
