@@ -5,6 +5,10 @@ terraform {
       version = "4.51.0"
     }
   }
+  backend "gcs" {
+    bucket  = "nyc-taxi-lakehouse-terraform-state-branko007"
+    prefix  = "terraform/state"
+  }
 }
 
 provider "google" {

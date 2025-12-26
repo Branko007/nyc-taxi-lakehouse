@@ -1,0 +1,12 @@
+nyc_taxi_profile:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      project: nyc-lakehouse-prod # <--- Cambiar por tu Project ID real
+      dataset: nyc_taxi_bronze # Dataset por defecto (Bronze)
+      threads: 4
+      keyfile: ../gcp_credentials/terraform-key.json
+      location: us-central1
+      priority: interactive

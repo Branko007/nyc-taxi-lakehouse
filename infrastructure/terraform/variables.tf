@@ -17,5 +17,5 @@ variable "gcs_bucket_name" {
 variable "bq_dataset_name" {
   description = "Nombre del dataset de BigQuery"
   type        = string
-  default     = "nyc_taxi_wh"
+  default     = "nyc_taxi_bronze"
 }

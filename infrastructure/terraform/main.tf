@@ -20,11 +20,35 @@ resource "google_storage_bucket" "data_lake" {
   }
 }
 
-# Data Warehouse: BigQuery Dataset
+# Data Warehouse: BigQuery Dataset (Bronze Layer)
 resource "google_bigquery_dataset" "dataset" {
   dataset_id                 = var.bq_dataset_name
-  friendly_name              = "NYC Taxi DWH"
-  description                = "Dataset principal para el Lakehouse"
+  friendly_name              = "NYC Taxi DWH - Bronze"
+  description                = "Capa Bronze: Datos crudos y tablas externas"
   location                   = var.region
-  delete_contents_on_destroy = true # Cuidado en prod, útil aquí
+  delete_contents_on_destroy = true 
+}
+
+# Data Warehouse: BigQuery Dataset (Silver Layer)
+resource "google_bigquery_dataset" "silver_dataset" {
+  dataset_id                 = "nyc_taxi_silver"
+  friendly_name              = "NYC Taxi DWH - Silver"
+  description                = "Capa Silver: Datos limpios y deduplicados"
+  location                   = var.region
+  delete_contents_on_destroy = true
+}
+
+# Tabla Externa en BigQuery (Capa Bronze/Raw)
+resource "google_bigquery_table" "external_yellow_taxi" {
+  dataset_id = google_bigquery_dataset.dataset.dataset_id
+  table_id   = "external_yellow_taxi"
+  description = "Tabla externa que apunta a los datos crudos en GCS"
+  deletion_protection = false
+
+  external_data_configuration {
+    autodetect    = true
+    source_format = "PARQUET"
+    # El comodín * permite leer todos los archivos dentro de la estructura de carpetas
+    source_uris   = ["gs://${var.gcs_bucket_name}/raw/yellow_tripdata/*.parquet"]
+  }
 }

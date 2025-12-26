@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: raw_data
+    database: nyc-lakehouse-prod
+    schema: nyc_taxi_bronze
+    tables:
+      - name: external_yellow_taxi
+        description: "Tabla externa que apunta a los archivos Parquet en GCS"

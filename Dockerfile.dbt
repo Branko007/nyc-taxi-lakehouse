@@ -1,0 +1,24 @@
+# Usamos la misma base que el ingestor para consistencia
+FROM python:3.10-slim
+
+# 1. Instalamos uv desde su imagen oficial (Truco Senior: Multi-stage copy)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# 2. Variables de entorno para optimizar Python en Docker
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_SYSTEM_PYTHON=1
+
+# 3. Instalamos dependencias del sistema mínimas
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# 4. Instalamos dbt-bigquery usando uv (Mucho más rápido que pip)
+RUN uv pip install dbt-bigquery
+
+# 5. Directorio de trabajo
+WORKDIR /usr/app/dbt_project
+
+# El entrypoint será dbt
+ENTRYPOINT ["dbt"]

@@ -24,3 +24,9 @@ terraform.tfvars
 
 # --- Airflow Logs ---
 logs/
+# --- dbt ---
+dbt_project/target/
+dbt_project/logs/
+dbt_project/dbt_packages/
+dbt_project/dbt_modules/
+.user.yml

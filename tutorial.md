@@ -2,6 +2,8 @@
 
 ¡Bienvenido/a! Estás a punto de construir una plataforma de datos profesional. Esta guía no es solo un recetario de comandos; es un recorrido diseñado para que **entiendas** cada decisión arquitectónica.
 
+En este proyecto, trabajaremos con el dataset público de **NYC Taxi & Limousine Commission (TLC)**. Estos datos contienen millones de registros sobre viajes en taxi en la ciudad de Nueva York, incluyendo horarios, ubicaciones de inicio/fin, distancias y tarifas, lo que nos proporciona el escenario perfecto para simular un flujo de Big Data real.
+
 Utilizaremos un stack moderno y robusto, integrando las herramientas líderes del mercado para cubrir cada etapa del ciclo de vida del dato:
 
 *   ☁️ **Google Cloud Platform (GCP)**: Nuestro ecosistema en la nube donde residirá toda la solución.
@@ -1024,5 +1026,293 @@ git push origin main
 
 ```
 
+---
 
+---
 
+## 🏗️ Fase 8: El Puente al Lakehouse (BigQuery External Tables)
+
+En esta fase, conectamos nuestro Data Lake (GCS) con nuestro Data Warehouse (BigQuery). Lo haremos sin mover los archivos, usando **Tablas Externas**. Esto es lo que define un **Data Lakehouse**: la potencia analítica de SQL sobre la flexibilidad de un almacenamiento de objetos.
+
+### 1. ¿Por qué renombrar los Datasets?
+Como Senior, buscamos que los nombres sean intuitivos. Cambiamos el dataset genérico por nombres que reflejen la **Arquitectura Medallion**:
+- `nyc_taxi_bronze`: Donde viven los datos crudos.
+- `nyc_taxi_silver`: Donde viven los datos limpios.
+
+### 2. Actualizar la Infraestructura (`infrastructure/terraform/main.tf`)
+
+```hcl
+# Dataset para la Capa Bronze (Datos Crudos)
+resource "google_bigquery_dataset" "dataset" {
+  dataset_id                 = "nyc_taxi_bronze"
+  friendly_name              = "NYC Taxi DWH - Bronze"
+  description                = "Capa Bronze: Datos crudos y tablas externas"
+  location                   = var.region
+  delete_contents_on_destroy = true 
+}
+
+# Dataset para la Capa Silver (Datos Limpios)
+resource "google_bigquery_dataset" "silver_dataset" {
+  dataset_id                 = "nyc_taxi_silver"
+  friendly_name              = "NYC Taxi DWH - Silver"
+  description                = "Capa Silver: Datos limpios y deduplicados"
+  location                   = var.region
+  delete_contents_on_destroy = true
+}
+
+# Tabla Externa: El "espejo" de nuestros archivos Parquet
+resource "google_bigquery_table" "external_yellow_taxi" {
+  dataset_id = google_bigquery_dataset.dataset.dataset_id
+  table_id   = "external_yellow_taxi"
+  description = "Tabla externa que apunta a los datos crudos en GCS"
+  
+  # IMPORTANTE: Desactivamos la protección de borrado para permitir cambios de esquema en desarrollo
+  deletion_protection = false
+
+  external_data_configuration {
+    autodetect    = true
+    source_format = "PARQUET"
+    # El comodín * permite leer todos los archivos .parquet en la carpeta
+    source_uris   = ["gs://${var.gcs_bucket_name}/raw/yellow_tripdata/*.parquet"]
+  }
+}
+```
+
+---
+
+## 🛠️ Fase 9: Transformación Profesional con dbt
+
+dbt (Data Build Tool) es el estándar de la industria para transformar datos. No solo escribe SQL, sino que añade **ingeniería** al proceso: control de versiones, pruebas y documentación.
+
+### 1. Configuración del Proyecto (`dbt_project.yml` & `profiles.yml`)
+Para que dbt funcione, necesita saber dos cosas: qué modelos ejecutar y cómo conectarse a la base de datos.
+
+**`dbt_project.yml`**: Es el cerebro del proyecto. Aquí definimos dónde están los modelos y en qué datasets (schemas) deben guardarse.
+```yaml
+name: 'nyc_taxi_transform'
+version: '1.0.0'
+config-version: 2
+profile: 'nyc_taxi_profile'
+
+models:
+  nyc_taxi_transform:
+    staging:
+      +schema: nyc_taxi_bronze
+      +materialized: view
+    silver:
+      +schema: nyc_taxi_silver
+      +materialized: incremental
+```
+
+**`profiles.yml`**: Contiene las credenciales técnicas. **Nota:** Usamos una ruta relativa para el `keyfile` para que funcione tanto en local como en Docker.
+```yaml
+nyc_taxi_profile:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      project: TU_PROJECT_ID_REAL
+      dataset: nyc_taxi_bronze
+      threads: 4
+      keyfile: ../gcp_credentials/terraform-key.json
+      location: us-central1
+```
+
+### 2. Limpieza de Nombres (Macros)
+Por defecto, dbt añade prefijos a los nombres de los datasets. Para evitar esto y tener nombres limpios, creamos una macro en `dbt_project/macros/generate_schema_name.sql`:
+
+```sql
+-- Esta macro sobreescribe el comportamiento por defecto de dbt
+-- para que use exactamente el nombre de esquema que definamos.
+{% macro generate_schema_name(custom_schema_name, node) -%}
+    {%- if custom_schema_name is none -%}
+        {{ target.schema }}
+    {%- else -%}
+        {{ custom_schema_name | trim }}
+    {%- endif -%}
+{%- endmacro %}
+```
+
+### 3. Capa de Staging (Bronze) con Tipado Explícito
+En `models/staging/stg_yellow_tripdata.sql`, normalizamos los nombres a `snake_case` y forzamos los tipos de datos. **Nunca confíes en la autodetección para producción.**
+
+```sql
+{{ config(materialized='view') }}
+
+SELECT
+    -- Identificadores (Normalizados a snake_case)
+    CAST(VendorID AS INT64) as vendor_id,
+    CAST(RatecodeID AS INT64) as rate_code_id,
+    CAST(PULocationID AS INT64) as pu_location_id,
+    CAST(DOLocationID AS INT64) as do_location_id,
+
+    -- Fechas (Convertidas de nanosegundos a Timestamp)
+    TIMESTAMP_MICROS(CAST(tpep_pickup_datetime / 1000 AS INT64)) as pickup_datetime,
+    TIMESTAMP_MICROS(CAST(tpep_dropoff_datetime / 1000 AS INT64)) as dropoff_datetime,
+
+    -- Detalles del viaje
+    CAST(passenger_count AS INT64) as passenger_count,
+    CAST(trip_distance AS FLOAT64) as trip_distance,
+    CAST(store_and_fwd_flag AS STRING) as store_and_fwd_flag,
+
+    -- Pagos y montos (Explícitamente FLOAT64 para evitar errores de precisión)
+    CAST(payment_type AS INT64) as payment_type,
+    CAST(fare_amount AS FLOAT64) as fare_amount,
+    CAST(extra AS FLOAT64) as extra,
+    CAST(mta_tax AS FLOAT64) as mta_tax,
+    CAST(tip_amount AS FLOAT64) as tip_amount,
+    CAST(tolls_amount AS FLOAT64) as tolls_amount,
+    CAST(improvement_surcharge AS FLOAT64) as improvement_surcharge,
+    CAST(total_amount AS FLOAT64) as total_amount,
+    CAST(congestion_surcharge AS FLOAT64) as congestion_surcharge,
+    CAST(Airport_fee AS FLOAT64) as airport_fee,
+
+    -- Auditoría
+    CAST(ingestion_timestamp AS TIMESTAMP) as ingestion_timestamp
+FROM {{ source('raw_data', 'external_yellow_taxi') }}
+```
+
+### 4. Capa Silver: Deduplicación Incremental
+En `models/silver/silver_yellow_tripdata.sql`, aplicamos la lógica de negocio. Usamos `incremental` para no procesar toda la tabla cada vez, ahorrando costos.
+
+```sql
+{{ config(
+    materialized='incremental',
+    unique_key=['vendor_id', 'pickup_datetime', 'dropoff_datetime', 'pu_location_id', 'do_location_id'],
+    incremental_strategy='merge'
+) }}
+
+WITH deduplicated AS (
+    SELECT
+        *,
+        -- Nos quedamos con el registro más reciente si hay duplicados
+        ROW_NUMBER() OVER (
+            PARTITION BY vendor_id, pickup_datetime, dropoff_datetime, pu_location_id, do_location_id
+            ORDER BY ingestion_timestamp DESC
+        ) as row_num
+    FROM {{ ref('stg_yellow_tripdata') }}
+    WHERE trip_distance > 0 
+      AND fare_amount > 0
+      AND pickup_datetime < CURRENT_TIMESTAMP()
+)
+
+SELECT
+    * EXCEPT(row_num)
+FROM deduplicated
+WHERE row_num = 1
+```
+
+---
+
+## 🤖 Fase 10: Automatización y Calidad
+
+Un pipeline que requiere ejecución manual no es un pipeline. Vamos a cerrar el círculo automatizando dbt dentro de Airflow.
+
+### 1. Dockerfile para dbt (`Dockerfile.dbt`)
+Creamos una imagen ligera que solo contiene dbt, pero usando `uv` para mantener la consistencia y velocidad:
+
+```dockerfile
+FROM python:3.10-slim
+# Instalamos uv desde su imagen oficial
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# Configuramos uv para que instale en el Python del sistema del contenedor
+ENV UV_SYSTEM_PYTHON=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends git
+RUN uv pip install dbt-bigquery
+
+WORKDIR /usr/app/dbt_project
+ENTRYPOINT ["dbt"]
+```
+
+> **💡 Nota Senior: ¿Por qué usar `uv` dentro de Docker?**
+> Aunque podríamos usar `pip`, usamos `uv` por tres razones:
+> 1. **Consistencia**: Todo el proyecto usa `uv`, el Dockerfile no debe ser la excepción.
+> 2. **Velocidad**: `uv` reduce el tiempo de construcción de la imagen significativamente.
+> 3. **Determinismo**: Nos asegura que las dependencias se resuelvan de la misma forma que en tu máquina local.
+
+### 2. El DAG Final (`dags/ingest_dag.py`)
+Ahora conectamos las piezas. La tarea de transformación depende de que la ingesta termine con éxito.
+
+```python
+# Tarea 2: Transformación con dbt
+transform_task = DockerOperator(
+    task_id='dbt_transform',
+    image='nyc-taxi-dbt:v1',
+    command="run --profiles-dir .",
+    mounts=[
+        # Montamos el código de dbt y las credenciales de GCP
+        Mount(source=f"{PROJECT_PATH}/dbt_project", target="/usr/app/dbt_project", type="bind"),
+        Mount(source=f"{PROJECT_PATH}/gcp_credentials", target="/usr/app/gcp_credentials", type="bind")
+    ],
+    docker_url="unix://var/run/docker.sock",
+)
+
+# Dependencia: Ingesta -> Transformación
+ingest_task >> transform_task
+```
+
+### 3. Limpieza de Deuda Técnica
+Como Senior, no dejamos basura. Eliminamos archivos `.log` y tablas temporales de prueba (`check_types`). Un repositorio limpio es un repositorio confiable.
+
+---
+
+## 🔐 Fase 11: Infraestructura Profesional (Remote Backend)
+
+Como Senior, no podemos permitir que la "memoria" de nuestra infraestructura viva solo en nuestra computadora. Vamos a configurar un **Remote Backend** en GCS para que el estado de Terraform sea seguro, compartido y persistente.
+
+### 1. ¿Por qué un Backend Remoto?
+- **Seguridad**: El archivo `.tfstate` puede contener secretos. En la nube está cifrado.
+- **Persistencia**: Si borras tu carpeta local, no pierdes el control de tu infraestructura.
+- **Colaboración**: Permite que varios ingenieros trabajen en el mismo proyecto sin pisarse.
+
+### 2. Configuración en `provider.tf`
+Añadimos el bloque `backend` dentro de `terraform {}`:
+
+```hcl
+terraform {
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "4.51.0"
+    }
+  }
+  # El estado ahora se guarda en la nube
+  backend "gcs" {
+    bucket  = "tu-bucket-terraform-state"
+    prefix  = "terraform/state"
+  }
+}
+```
+
+### 3. Migración del Estado
+Para mover tu estado local a la nube, ejecuta:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS=../../gcp_credentials/terraform-key.json
+terraform init -migrate-state
+```
+
+Una vez completado, puedes borrar los archivos `terraform.tfstate` y `terraform.tfstate.backup` de tu carpeta local. ¡Tu infraestructura ahora es profesional!
+
+---
+
+## 🧠 Conclusión Final
+¡Felicidades! Has construido un **Data Lakehouse End-to-End** con estándares de la industria. 
+
+**¿Qué has aprendido?**
+1. **IaC**: Terraform para gestionar la nube.
+2. **Orquestación**: Airflow con Docker (DooD).
+3. **Almacenamiento**: GCS + BigQuery (Lakehouse).
+4. **Transformación**: dbt con Arquitectura Medallion.
+5. **Calidad**: Tipado explícito, normalización y deduplicación.
+
+**No te olvides de guardar tus avances:**
+
+```bash
+git add .
+git commit -m "feat: complete medallion architecture and automation"
+git push origin main
+```

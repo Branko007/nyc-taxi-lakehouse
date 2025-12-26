@@ -5,10 +5,11 @@ from docker.types import Mount
 import os 
 
 # --- CONFIGURACIÓN ---
-PROJECT_PATH = "/home/branko007/projects/nyc-taxi-lakehouse" 
+# Obtenemos la ruta base del proyecto de forma dinámica
+DAG_PATH = os.path.dirname(os.path.abspath(__file__))
+PROJECT_PATH = os.path.abspath(os.path.join(DAG_PATH, ".."))
 
 # 👇 LEEMOS LA CONFIGURACIÓN DEL ENTORNO
-# Si no encuentra la variable, lanzamos error para fallar rápido (Fail Fast)
 BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
 if not BUCKET_NAME:
     raise ValueError("❌ Error Crítico: GCS_BUCKET_NAME no está definido en el entorno de Airflow.")
@@ -32,23 +33,16 @@ with DAG(
     tags=['ingestion', 'docker', 'nyc-lakehouse'],
 ) as dag:
 
-    # Tarea: Ingestión de Junio 2024 (Hardcodeada por ahora para probar)
+    # Tarea 1: Ingestión Dinámica
     ingest_task = DockerOperator(
-        task_id='ingest_jun_2024',
-        image='nyc-taxi-ingestor:v1', # La imagen que construiste
+        task_id='ingest_data',
+        image='nyc-taxi-ingestor:v1',
         api_version='auto',
-        auto_remove=True, # Borrar contenedor al terminar
-        
-        # El comando que ejecutará dentro del contenedor
-        # Airflow pasará esto al ENTRYPOINT
-        command="--year 2024 --month 3",
-        
-        # Configuración de red para salir a internet
+        auto_remove=True,
+        # Usamos macros de Airflow para que sea dinámico basado en la fecha de ejecución
+        command="--year {{ execution_date.year }} --month {{ execution_date.month }}",
         network_mode="host", 
-        
-        # Montaje de volúmenes (Mapeo de Host -> Contenedor)
         mounts=[
-            # Montamos las credenciales para que el script pueda leerlas
             Mount(
                 source=f"{PROJECT_PATH}/gcp_credentials", 
                 target="/app/gcp_credentials", 
@@ -56,11 +50,37 @@ with DAG(
             )
         ],
         environment={
-            # Ruta interna en el contenedor (Fija porque depende del mount target)
             'GOOGLE_APPLICATION_CREDENTIALS': '/app/gcp_credentials/terraform-key.json',
             'GCS_BUCKET_NAME': BUCKET_NAME 
         },
         docker_url="unix://var/run/docker.sock",
     )
 
-    ingest_task
+    # Tarea 2: Transformación con dbt (Capa Silver)
+    transform_task = DockerOperator(
+        task_id='dbt_transform',
+        image='nyc-taxi-dbt:v1',
+        api_version='auto',
+        auto_remove=True,
+        # Ejecutamos dbt run usando el perfil local
+        command="run --profiles-dir .",
+        network_mode="host",
+        mounts=[
+            # Montamos el proyecto dbt
+            Mount(
+                source=f"{PROJECT_PATH}/dbt_project",
+                target="/usr/app/dbt_project",
+                type="bind"
+            ),
+            # Montamos las credenciales en la ruta que espera profiles.yml (../gcp_credentials)
+            Mount(
+                source=f"{PROJECT_PATH}/gcp_credentials",
+                target="/usr/app/gcp_credentials",
+                type="bind"
+            )
+        ],
+        docker_url="unix://var/run/docker.sock",
+    )
+
+    # Definimos la dependencia: Primero ingesta, luego transformación
+    ingest_task >> transform_task
