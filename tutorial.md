@@ -2,7 +2,16 @@
 
 ¡Bienvenido/a! Estás a punto de construir una plataforma de datos profesional. Esta guía no es solo un recetario de comandos; es un recorrido diseñado para que **entiendas** cada decisión arquitectónica.
 
-Utilizaremos un stack moderno y demandado en la industria: **Google Cloud Platform (GCP)**, **Terraform** (Infraestructura como Código) y **Python** con **Polars**.
+Utilizaremos un stack moderno y robusto, integrando las herramientas líderes del mercado para cubrir cada etapa del ciclo de vida del dato:
+
+*   ☁️ **Google Cloud Platform (GCP)**: Nuestro ecosistema en la nube donde residirá toda la solución.
+*   🏗️ **Terraform**: Para implementar **Infraestructura como Código (IaC)**, permitiéndonos crear y destruir recursos (servidores, bases de datos) de forma automática y profesional.
+*   🪣 **Cloud Storage (Buckets)**: Funcionará como nuestro **Data Lake**, el lugar donde almacenaremos los datos crudos (Raw) de forma económica y masiva.
+*   🐍 **Python & Polars**: El motor de procesamiento. Usaremos Polars por su velocidad extrema para transformar datos antes de moverlos.
+*   🐳 **Docker**: Para "contenerizar" nuestro código, asegurando que lo que funciona en tu computadora funcione exactamente igual en la nube, sin conflictos de dependencias.
+*   ⚙️ **Apache Airflow**: El director de orquesta que programará y vigilará que cada paso de nuestra tubería de datos (pipeline) se ejecute en el orden correcto.
+*   🔍 **BigQuery**: Nuestro **Data Warehouse** de alto rendimiento, donde realizaremos análisis complejos a gran escala usando SQL.
+*   🛠️ **dbt (data build tool)**: Para transformar los datos dentro de BigQuery, aplicando ingeniería de software (tests, documentación y control de versiones) a nuestras consultas SQL.
 
 ---
 
@@ -11,11 +20,15 @@ Utilizaremos un stack moderno y demandado en la industria: **Google Cloud Platfo
 Simularemos un entorno de producción real para una empresa de taxis (NYC Taxi).
 **Tu misión:** Crear un sistema automatizado que ingeste, procese y almacene datos masivos de viajes, permitiendo análisis rápidos y eficientes.
 
-**Lo que aprenderás:**
-*   🏗️ **IaC**: Cómo levantar infraestructura sin hacer clics manuales.
-*   🛡️ **Seguridad**: Manejo de credenciales y roles.
-*   🐍 **Python Moderno**: Uso de tipos estáticos, POO y librerías de alto rendimiento (Polars).
-*   ☁️ **Cloud Engineering**: Conceptos de Data Lake vs Data Warehouse.
+### 🧠 ¿Qué habilidades dominarás?
+
+Al finalizar este proyecto, no solo habrás configurado herramientas; habrás desarrollado una mentalidad de **Data Engineer Senior** basada en principios de ingeniería de software:
+
+*   **Pensamiento de Infraestructura (IaC)**: Dejarás de configurar recursos manualmente para definir tu arquitectura mediante código, permitiendo que sea reproducible, versionable y libre de errores humanos.
+*   **Diseño de Arquitecturas Híbridas**: Entenderás la sinergia entre un **Data Lake** (almacenamiento masivo y económico) y un **Data Warehouse** (análisis de alto rendimiento), aprendiendo a mover datos entre ellos de forma eficiente.
+*   **Ingeniería de Datos de Alto Rendimiento**: Dominarás el procesamiento de datos moderno con **Polars**, aprendiendo a manipular millones de filas en segundos optimizando el uso de memoria y CPU.
+*   **Calidad y Gobernanza de Datos**: Aplicarás estándares de desarrollo (tests, documentación y linaje) a tus modelos de SQL mediante **dbt**, transformando consultas simples en activos de datos confiables para el negocio.
+*   **Resiliencia y Orquestación**: Aprenderás a encapsular lógica en **Docker** para eliminar el "en mi máquina funciona" y a delegar la ejecución en **Airflow**, garantizando que tus procesos se recuperen automáticamente ante fallos.
 
 ---
 
