@@ -5,7 +5,7 @@ resource "google_storage_bucket" "data_lake" {
   force_destroy = true # Permite borrar el bucket aunque tenga datos (útil para dev)
 
   uniform_bucket_level_access = true # Sirve para que todos los archivos dentro del bucket tengan el mismo nivel de acceso
-  
+
   versioning {
     enabled = true
   }
@@ -34,6 +34,15 @@ resource "google_bigquery_dataset" "silver_dataset" {
   dataset_id                 = "nyc_taxi_silver"
   friendly_name              = "NYC Taxi DWH - Silver"
   description                = "Capa Silver: Datos limpios y deduplicados"
+  location                   = var.region
+  delete_contents_on_destroy = true
+}
+
+# Data Warehouse: BigQuery Dataset (Gold Layer)
+resource "google_bigquery_dataset" "gold_dataset" {
+  dataset_id                 = "nyc_taxi_gold"
+  friendly_name              = "NYC Taxi DWH - Gold"
+  description                = "Capa Gold: Reportes agregados y valor de negocio"
   location                   = var.region
   delete_contents_on_destroy = true
 }

@@ -235,31 +235,6 @@ resource "google_bigquery_dataset" "dataset" {
   location                   = var.region
   delete_contents_on_destroy = true 
 }
-
-# Data Warehouse: BigQuery Dataset (Silver Layer)
-resource "google_bigquery_dataset" "silver_dataset" {
-  dataset_id                 = "nyc_taxi_silver"
-  friendly_name              = "NYC Taxi DWH - Silver"
-  description                = "Capa Silver: Datos limpios y deduplicados"
-  location                   = var.region
-  delete_contents_on_destroy = true
-}
-
-# Tabla Externa en BigQuery (Capa Bronze/Raw)
-resource "google_bigquery_table" "external_yellow_taxi" {
-  dataset_id = google_bigquery_dataset.dataset.dataset_id
-  table_id   = "external_yellow_taxi"
-  description = "Tabla externa que apunta a los datos crudos en GCS"
-  deletion_protection = false
-
-  external_data_configuration {
-    autodetect    = true
-    source_format = "PARQUET"
-    # El comodín * permite leer todos los archivos dentro de la estructura de carpetas
-    source_uris   = ["gs://${var.gcs_bucket_name}/raw/yellow_tripdata/*.parquet"]
-  }
-}
-
 ```
 
 ### 4. Tus Valores (`terraform.tfvars`)
@@ -751,8 +726,11 @@ x-airflow-common:
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
+    AIRFLOW__WEBSERVER__SECRET_KEY: 'this_is_a_very_secret_key_for_dev_only'
     # Esta variable instala el proveedor de Docker al arrancar (Truco para Dev)
     _PIP_ADDITIONAL_REQUIREMENTS: apache-airflow-providers-docker
+    # Pasamos la ruta del host para que el DockerOperator sepa dónde están los archivos
+    AIRFLOW_PROJ_DIR: ${AIRFLOW_PROJ_DIR}
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
@@ -862,7 +840,20 @@ Agrega esta línea a tu archivo `.env`:
 
 ```
 AIRFLOW_UID=1000
+# ⚠️ RUTA ABSOLUTA de tu proyecto en el HOST (ej: /home/branko/nyc-taxi-lakehouse)
+# Esto es vital para que los mounts de Docker funcionen correctamente.
+AIRFLOW_PROJ_DIR=/home/TU_USUARIO/projects/nyc-taxi-lakehouse
 ```
+
+> [!IMPORTANT]
+> **Nota Senior: El misterio de las rutas en Docker-out-of-Docker (DooD)**
+>
+> ¿Por qué no podemos usar rutas relativas o `os.path.abspath`?
+> 1. **Cajas dentro de cajas**: Airflow corre dentro de un contenedor. Si le pedimos a Python su ruta, dirá `/opt/airflow`.
+> 2. **El Motor Real**: Airflow no lanza contenedores "dentro" de sí mismo, sino que le pide al Docker de tu máquina real (el Host) que los lance.
+> 3. **El Mount**: Cuando montamos un volumen, el motor de Docker busca la ruta en **tu máquina real**. Si le pasamos `/opt/airflow`, Docker fallará porque esa carpeta no existe en tu Windows/WSL, solo existe dentro de Airflow.
+>
+> Al definir `AIRFLOW_PROJ_DIR`, le damos a Airflow la "dirección real" de tu casa para que pueda invitar a otros contenedores a pasar.
 
 > **Nota:** Esto evita errores de permisos. Puedes verificar tu UID con el comando `id -u`.
 
@@ -1062,16 +1053,9 @@ Como Data Engineer, buscamos que los nombres sean intuitivos. Cambiamos el datas
 
 ### 2. Actualizar la Infraestructura (`infrastructure/terraform/main.tf`)
 
-```hcl
-# Dataset para la Capa Bronze (Datos Crudos)
-resource "google_bigquery_dataset" "dataset" {
-  dataset_id                 = "nyc_taxi_bronze"
-  friendly_name              = "NYC Taxi DWH - Bronze"
-  description                = "Capa Bronze: Datos crudos y tablas externas"
-  location                   = var.region
-  delete_contents_on_destroy = true 
-}
+Añadimos el dataset para la capa Silver y la tabla externa que servirá de puente:
 
+```hcl
 # Dataset para la Capa Silver (Datos Limpios)
 resource "google_bigquery_dataset" "silver_dataset" {
   dataset_id                 = "nyc_taxi_silver"
@@ -1086,8 +1070,6 @@ resource "google_bigquery_table" "external_yellow_taxi" {
   dataset_id = google_bigquery_dataset.dataset.dataset_id
   table_id   = "external_yellow_taxi"
   description = "Tabla externa que apunta a los datos crudos en GCS"
-  
-  # IMPORTANTE: Desactivamos la protección de borrado para permitir cambios de esquema en desarrollo
   deletion_protection = false
 
   external_data_configuration {
@@ -1098,6 +1080,8 @@ resource "google_bigquery_table" "external_yellow_taxi" {
   }
 }
 ```
+
+Luego ejecuta `terraform apply` para crear estos nuevos recursos.
 
 ---
 
@@ -1258,22 +1242,101 @@ ENTRYPOINT ["dbt"]
 Ahora conectamos las piezas. La tarea de transformación depende de que la ingesta termine con éxito.
 
 ```python
-# Tarea 2: Transformación con dbt
-transform_task = DockerOperator(
-    task_id='dbt_transform',
-    image='nyc-taxi-dbt:v1',
-    command="run --profiles-dir .",
-    mounts=[
-        # Montamos el código de dbt y las credenciales de GCP
-        Mount(source=f"{PROJECT_PATH}/dbt_project", target="/usr/app/dbt_project", type="bind"),
-        Mount(source=f"{PROJECT_PATH}/gcp_credentials", target="/usr/app/gcp_credentials", type="bind")
-    ],
-    docker_url="unix://var/run/docker.sock",
-)
+from datetime import datetime, timedelta
+from airflow import DAG
+from airflow.providers.docker.operators.docker import DockerOperator
+from docker.types import Mount
+import os 
 
-# Dependencia: Ingesta -> Transformación
-ingest_task >> transform_task
+# --- CONFIGURACIÓN ---
+# ⚠️ IMPORTANTE (DooD): En Docker-out-of-Docker, el 'source' de un Mount debe ser la ruta EN EL HOST.
+PROJECT_PATH = os.getenv("AIRFLOW_PROJ_DIR", "/home/TU_USUARIO/projects/nyc-taxi-lakehouse")
+BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
+
+default_args = {
+    'owner': 'airflow',
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+with DAG(
+    'nyc_taxi_ingestion_v1',
+    default_args=default_args,
+    start_date=datetime(2024, 1, 1), # Evitamos el mes actual para no tener errores de datos no publicados
+    schedule_interval='@monthly',
+    catchup=False,
+) as dag:
+
+    ingest_task = DockerOperator(
+        task_id='ingest_data',
+        image='nyc-taxi-ingestor:v1',
+        command="--year {{ execution_date.year }} --month {{ execution_date.month }}",
+        network_mode="host", 
+        mounts=[
+            Mount(source=f"{PROJECT_PATH}/gcp_credentials", target="/app/gcp_credentials", type="bind")
+        ],
+        environment={
+            'GOOGLE_APPLICATION_CREDENTIALS': '/app/gcp_credentials/terraform-key.json',
+            'GCS_BUCKET_NAME': BUCKET_NAME 
+        },
+        docker_url="unix://var/run/docker.sock",
+    )
+
+    transform_task = DockerOperator(
+        task_id='dbt_run',
+        image='nyc-taxi-dbt:v1',
+        command="run --profiles-dir .",
+        network_mode="host",
+        mounts=[
+            Mount(source=f"{PROJECT_PATH}/dbt_project", target="/usr/app/dbt_project", type="bind"),
+            Mount(source=f"{PROJECT_PATH}/gcp_credentials", target="/usr/app/gcp_credentials", type="bind")
+        ],
+        docker_url="unix://var/run/docker.sock",
+    )
+
+    test_task = DockerOperator(
+        task_id='dbt_test',
+        image='nyc-taxi-dbt:v1',
+        command="test --profiles-dir .",
+        network_mode="host",
+        mounts=[
+            Mount(source=f"{PROJECT_PATH}/dbt_project", target="/usr/app/dbt_project", type="bind"),
+            Mount(source=f"{PROJECT_PATH}/gcp_credentials", target="/usr/app/gcp_credentials", type="bind")
+        ],
+        docker_url="unix://var/run/docker.sock",
+    )
+
+    ingest_task >> transform_task >> test_task
 ```
+
+---
+
+## ⚠️ Fase 14: El Problema del "Futuro" y Errores 403/404
+
+Si ejecutas el DAG para el mes actual, es muy probable que veas un error **403 Forbidden** o **404 Not Found**.
+
+### ¿Por qué sucede esto?
+Los datos de NYC TLC (Taxi & Limousine Commission) no se publican en tiempo real. Suelen tener un retraso de **2 a 3 meses**. Por lo tanto, si hoy es Diciembre de 2025, el archivo `yellow_tripdata_2025-12.parquet` aún no existe en sus servidores.
+
+### Cómo probar con datos reales
+Para verificar que tu pipeline funciona de principio a fin, debes hacer un **Backfill** (ejecución hacia atrás) para un mes que sí tenga datos, como **Enero de 2024**.
+
+#### Opción A: Desde la Terminal (Recomendado)
+Ejecuta este comando para forzar la ejecución de un mes pasado:
+```bash
+docker compose exec airflow-scheduler airflow dags backfill \
+    --start-date 2024-01-01 \
+    --end-date 2024-01-01 \
+    nyc_taxi_ingestion_v1
+```
+
+#### Opción B: Desde la Interfaz de Airflow
+1. Activa el DAG (interruptor azul).
+2. Haz clic en el nombre del DAG.
+3. En la vista de **Grid**, busca una ejecución pasada o usa **"Trigger DAG w/ config"** y ajusta la fecha si tu versión lo permite.
+4. Si una tarea falló por fecha, puedes darle a **"Clear"** en una ejecución de 2024 para que vuelva a intentarlo con esa fecha.
+
+---
 
 ### 3. Limpieza de Deuda Técnica
 Como Senior, no dejamos basura. Eliminamos archivos `.log` y tablas temporales de prueba (`check_types`). Un repositorio limpio es un repositorio confiable.
@@ -1302,7 +1365,7 @@ terraform {
   }
   # El estado ahora se guarda en la nube
   backend "gcs" {
-    bucket  = "tu-bucket-terraform-state"
+    bucket  = "nyc-taxi-lakehouse-terraform-state-branko007"
     prefix  = "terraform/state"
   }
 }
@@ -1320,6 +1383,106 @@ Una vez completado, puedes borrar los archivos `terraform.tfstate` y `terraform.
 
 ---
 
+---
+
+## 🏆 Fase 12: La Capa Gold (Valor de Negocio)
+
+La capa Gold es donde los datos se transforman en respuestas para el negocio. Aquí no guardamos datos crudos, sino **reportes agregados** listos para ser consumidos por herramientas de BI (como Looker o Tableau).
+
+### 1. ¿Qué es una Materialización? (Concepto Senior)
+Antes de crear los modelos, debes entender cómo dbt guarda los datos en BigQuery:
+
+| Tipo | Qué hace | Cuándo usarlo |
+| :--- | :--- | :--- |
+| **View** | Es una consulta guardada (virtual). No ocupa espacio. | Datos pequeños o que cambian mucho. |
+| **Table** | Crea una tabla física con los datos. | Reportes finales donde la velocidad es clave. |
+| **Incremental** | Solo añade los datos nuevos a una tabla existente. | Tablas gigantes (como nuestra capa Silver). |
+
+> [!TIP]
+> En la capa Gold usaremos `materialized='table'` para que los analistas tengan respuestas instantáneas.
+
+### 2. Configuración de la Capa Gold
+Actualizamos nuestro `dbt_project.yml` para incluir la nueva capa:
+
+```yaml
+models:
+  nyc_taxi_transform:
+    # ... (staging y silver)
+    gold:
+      +schema: nyc_taxi_gold
+      +materialized: table
+```
+
+### 3. Modelo: Ingresos Mensuales (`gold_monthly_revenue.sql`)
+Este modelo agrupa millones de viajes en unas pocas filas de resumen mensual:
+
+```sql
+{{ config(materialized='table') }}
+
+SELECT
+    vendor_id,
+    EXTRACT(YEAR FROM pickup_datetime) as year,
+    EXTRACT(MONTH FROM pickup_datetime) as month,
+    SUM(fare_amount) as total_fare,
+    SUM(tip_amount) as total_tips,
+    SUM(total_amount) as total_revenue,
+    COUNT(*) as total_trips
+FROM {{ ref('silver_yellow_tripdata') }}
+GROUP BY 1, 2, 3
+```
+
+---
+
+## 🧪 Fase 13: Calidad de Datos (dbt Tests)
+
+Un Data Engineer Senior nunca entrega datos sin probarlos. dbt nos permite automatizar pruebas de calidad.
+
+### 1. Pruebas Genéricas (`schema.yml`)
+Creamos un archivo de configuración para definir qué esperamos de nuestros datos:
+
+```yaml
+version: 2
+models:
+  - name: gold_monthly_revenue
+    columns:
+      - name: vendor_id
+        tests:
+          - not_null  # El ID no puede estar vacío
+      - name: total_revenue
+        tests:
+          - not_null
+```
+
+### 2. Ejecución de Pruebas
+Para validar que todo es correcto, ejecutamos manualmente:
+
+```bash
+dbt test
+```
+
+**¡Automatización Senior!** 🚀
+Como habrás notado en la Fase 10, hemos integrado `dbt test` directamente en nuestro DAG de Airflow. Esto significa que si los datos no pasan las pruebas de calidad, el pipeline se detendrá y no llegará a los reportes finales, evitando que el negocio tome decisiones basadas en datos erróneos.
+
+---
+
+## 🕵️ Fase 15: El Desafío de los "Datos Sucios" (Real World Data)
+
+Si exploras tus tablas Gold, notarás algo extraño: aunque procesamos datos de 2024, aparecen registros de años como **2002, 2009 o incluso 2030**. 
+
+### ¿Por qué sucede esto?
+No es un error de tu código. Es la realidad de trabajar con datos masivos del mundo real:
+1. **Taxímetros Desconfigurados**: Muchos taxis tienen relojes internos mal configurados. Si el reloj dice que es el año 2002, el viaje se registrará con esa fecha.
+2. **Reseteos de Hardware**: Fallos de batería o GPS pueden resetear la fecha del sistema a valores por defecto.
+3. **Ruido en la Fuente**: El dataset de NYC TLC es famoso por contener este tipo de "anomalías cronológicas".
+
+### 💡 Tu Desafío (Opcional)
+Un Data Engineer Senior no solo mueve datos, los limpia. En la **Arquitectura Medallion**, la capa **Silver** es el lugar ideal para filtrar este ruido.
+
+**¿Te atreves a resolverlo?**
+Intenta modificar tu modelo `silver_yellow_tripdata.sql` para añadir un filtro `WHERE` que solo permita viajes con fechas lógicas (ej: entre 2023 y 2025). ¡Esa es la diferencia entre un pipeline que funciona y uno que es confiable!
+
+---
+
 ## 🧠 Conclusión Final
 ¡Felicidades! Has construido un **Data Lakehouse End-to-End** con estándares de la industria. 
 
@@ -1327,13 +1490,14 @@ Una vez completado, puedes borrar los archivos `terraform.tfstate` y `terraform.
 1. **IaC**: Terraform para gestionar la nube.
 2. **Orquestación**: Airflow con Docker (DooD).
 3. **Almacenamiento**: GCS + BigQuery (Lakehouse).
-4. **Transformación**: dbt con Arquitectura Medallion.
-5. **Calidad**: Tipado explícito, normalización y deduplicación.
+4. **Transformación**: dbt con Arquitectura Medallion (Bronze, Silver, Gold).
+5. **Calidad**: Tipado explícito, deduplicación y tests automatizados.
+6. **Seniority**: Remote Backends y Micro-containerización.
 
 **No te olvides de guardar tus avances:**
 
 ```bash
 git add .
-git commit -m "feat: complete medallion architecture and automation"
+git commit -m "feat: complete medallion architecture with gold layer and tests"
 git push origin main
 ```

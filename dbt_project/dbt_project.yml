@@ -24,3 +24,6 @@ models:
     silver:
       +schema: nyc_taxi_silver
       +materialized: incremental
+    gold:
+      +schema: nyc_taxi_gold
+      +materialized: table

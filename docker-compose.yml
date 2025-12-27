@@ -12,8 +12,11 @@ x-airflow-common:
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
+    AIRFLOW__WEBSERVER__SECRET_KEY: 'this_is_a_very_secret_key_for_dev_only'
     # Esta variable instala el proveedor de Docker al arrancar (Truco para Dev)
     _PIP_ADDITIONAL_REQUIREMENTS: apache-airflow-providers-docker
+    # ⚠️ RUTA DEL HOST para DooD (Docker-out-of-Docker)
+    AIRFLOW_PROJ_DIR: ${AIRFLOW_PROJ_DIR:-/home/TU_USUARIO/projects/nyc-taxi-lakehouse}
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
