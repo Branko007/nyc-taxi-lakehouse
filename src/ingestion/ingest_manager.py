@@ -33,7 +33,7 @@ class TaxiIngestor:
     def download_data(self, year: int, month: int, service_type: str = "yellow") -> str:
         """
         Descarga el archivo Parquet desde la web de NYC TLC a un temporal local.
-        Retorna la ruta del archivo local.
+        Retorna la ruta del archivo local que se encuentra en /tmp localizado puntualmente en el contenedor
         """
         # Formato de URL oficial de NYC TLC: 
         # https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-01.parquet
@@ -45,11 +45,11 @@ class TaxiIngestor:
         logging.info(f"⬇️ Iniciando descarga desde: {url}")
         
         try:
-            response = requests.get(url, stream=True)
+            response = requests.get(url, stream=True) # Stream=True para descargar en chunks 
             response.raise_for_status() # Lanza error si 404/500
 
             with open(local_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
+                for chunk in response.iter_content(chunk_size=8192): #Sig
                     f.write(chunk)
             
             logging.info(f"✅ Archivo descargado en: {local_path}")
