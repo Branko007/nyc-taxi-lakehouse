@@ -14,7 +14,7 @@ Utilizaremos un stack moderno y robusto, integrando las herramientas líderes de
 *   ⚙️ **Apache Airflow**: El director de orquesta que programará y vigilará que cada paso de nuestra tubería de datos (pipeline) se ejecute en el orden correcto.
 *   🔍 **BigQuery**: Nuestro **Data Warehouse** de alto rendimiento, donde realizaremos análisis complejos a gran escala usando SQL.
 *   🛠️ **dbt (data build tool)**: Para transformar los datos dentro de BigQuery, aplicando ingeniería de software (tests, documentación y control de versiones) a nuestras consultas SQL.
-
+*  📦 **GIT**: Para controlar versiones y colaborar con otros desarrolladores.
 ---
 
 ## 🎯 Objetivo del Proyecto
@@ -24,13 +24,15 @@ Simularemos un entorno de producción real para una empresa de taxis (NYC Taxi).
 
 ### 🧠 ¿Qué habilidades dominarás?
 
-Al finalizar este proyecto, no solo habrás configurado herramientas; habrás desarrollado una mentalidad de **Data Engineer Senior** basada en principios de ingeniería de software:
+Al finalizar este proyecto, no solo habrás configurado herramientas; habrás desarrollado una mentalidad de **Data Engineer** sólida basada en principios de ingeniería de software:
 
 *   **Pensamiento de Infraestructura (IaC)**: Dejarás de configurar recursos manualmente para definir tu arquitectura mediante código, permitiendo que sea reproducible, versionable y libre de errores humanos.
 *   **Diseño de Arquitecturas Híbridas**: Entenderás la sinergia entre un **Data Lake** (almacenamiento masivo y económico) y un **Data Warehouse** (análisis de alto rendimiento), aprendiendo a mover datos entre ellos de forma eficiente.
 *   **Ingeniería de Datos de Alto Rendimiento**: Dominarás el procesamiento de datos moderno con **Polars**, aprendiendo a manipular millones de filas en segundos optimizando el uso de memoria y CPU.
 *   **Calidad y Gobernanza de Datos**: Aplicarás estándares de desarrollo (tests, documentación y linaje) a tus modelos de SQL mediante **dbt**, transformando consultas simples en activos de datos confiables para el negocio.
 *   **Resiliencia y Orquestación**: Aprenderás a encapsular lógica en **Docker** para eliminar el "en mi máquina funciona" y a delegar la ejecución en **Airflow**, garantizando que tus procesos se recuperen automáticamente ante fallos.
+
+* **Idempotencia**: Aprenderás a hacer que tus procesos sean idempotentes, es decir, que puedan ser ejecutados múltiples veces sin causar efectos secundarios.
 
 ---
 
@@ -41,7 +43,7 @@ Antes de empezar, necesitamos preparar tu "caja de herramientas". Asegúrate de 
 *   **Git**: Para guardar tu progreso y versionar el código.
 *   **Google Cloud CLI (`gcloud`)**: El "control remoto" de GCP desde tu terminal.
 *   **Terraform**: El albañil que construirá tu infraestructura.
-*   **Python 3.9+**: El cerebro de nuestra lógica.
+*   **Python 3.10**: El cerebro de nuestra lógica.
 *   **uv**: Un gestor de paquetes ultra-rápido (lo instalaremos juntos si no lo tienes).
 
 ---
@@ -109,7 +111,7 @@ gcp_credentials/
 Usaremos `uv` en lugar de `pip`. Imagina que `pip` es un instalador manual y `uv` es un equipo de instalación automatizado de alta velocidad.
 
 ```bash
-# 1. Inicializar el gestor de paquetes
+# 1. Inicializar el gestor de paquetes desde la raíz del proyecto
 uv init
 
 # 2. Crear un entorno virtual aislado (.venv)
@@ -122,8 +124,9 @@ source .venv/bin/activate
 # En Windows (PowerShell):
 # .venv\Scripts\activate
 
-# 4. Instalar librerías iniciales
-uv pip install "requests>=2.32.5" "polars>=1.35.2" "google-cloud-storage>=3.6.0" "python-dotenv>=1.2.1" "pyarrow>=22.0.0"
+# 4. Agregar las librerías al proyecto
+# Esto las instala y las registra en pyproject.toml automáticamente
+uv add "requests>=2.32.5" "polars>=1.35.2" "google-cloud-storage>=3.6.0" "python-dotenv>=1.2.1" "pyarrow>=22.0.0"
 ```
 
 ## ☁️ Fase 2: Configuración de Google Cloud (El "Bootstrap")
@@ -262,9 +265,17 @@ terraform apply
 # Escribe 'yes' para confirmar.
 ```
 
-#### ¡Felicidades! 🎉 Has desplegado tu infraestructura base en Google Cloud.
----
+### 🏁 Parada Técnica: ¿Qué acabas de lograr?
 
+Acabas de cruzar la frontera de "usuario de consola" a "ingeniero de nube". 
+
+*   **¿Qué?**: Levantaste un **Data Lake** (GCS) para guardar archivos y un **Data Warehouse** (BigQuery) para analítica.
+*   **¿Cómo?**: Usando **Infraestructura como Código (IaC)**. Terraform leyó tus archivos `.tf` y se encargó de hablar con la API de Google por ti.
+*   **¿Por qué?**: Porque en el mundo real no configuramos nubes a mano. Queremos código que sea **reproducible**, **auditable** y fácil de recrear sin errores humanos.
+
+#### ¡Felicidades! 🎉 Has desplegado tu infraestructura base en Google Cloud.
+
+---
 ## 💾 Intermedio: Guardando el Progreso (Git)
 
 Git no guarda carpetas vacías. Para mantener nuestra estructura organizada en el repositorio, usaremos un truco: poner un archivo vacío llamado `.gitkeep` en cada carpeta.
@@ -296,13 +307,9 @@ Ahora que tenemos infraestructura, necesitamos datos. Crearemos un programa en P
 ### ¿Por qué Python y POO?
 Usaremos **Programación Orientada a Objetos (Clases)**. Esto hace que el código sea modular (piezas de Lego) y fácil de probar, a diferencia de un script "espagueti" que hace todo de arriba a abajo.
 
-### Preparación de Librerías
+### Preparación del Entorno
 
-Usaremos `uv add` para instalar y registrar las dependencias en `pyproject.toml` (como el `package.json` de Node.js).
-
-```bash
-uv add "requests>=2.32.5" "polars>=1.35.2" "google-cloud-storage>=3.6.0" "python-dotenv>=1.2.1" "pyarrow>=22.0.0"
-```
+Como ya agregamos las librerías necesarias en la **Fase 1**, nuestro entorno ya está listo para importar `polars`, `requests` y el resto de herramientas. No es necesario volver a instalarlas.
 
 ### Configuración (`.env`)
 
@@ -491,6 +498,17 @@ git push
 
 ¡Excelente trabajo! Has construido la primera tubería de datos de tu Lakehouse. 🚀
 
+### 🏁 Parada Técnica: ¿Qué acabas de lograr?
+
+En esta etapa, hemos pasado de un script básico a una **tubería de datos de grado productivo**. Aquí está el desglose de nuestra arquitectura:
+
+*   **¿Qué hicimos?**: Creamos un orquestador de ingesta que automatiza el ciclo de vida del dato: descarga -> limpieza/tipado -> almacenamiento en la nube -> limpieza local.
+*   **¿Cómo lo hicimos?**:
+    *   **Polars**: Para procesar datos en memoria de forma ultra rápida y exportar a **Parquet** (el estándar de oro en Big Data).
+    *   **Google Cloud Storage (GCS)**: Como nuestra capa de *Landing Zone* o *Bronze*, donde los datos viven de forma duradera.
+    *   **Logging & Error Handling**: Implementamos un sistema de rastreo para que, si algo falla a las 3 AM, sepamos exactamente por qué sin adivinar.
+*   **¿Por qué así?**: Porque la escalabilidad no se trata solo de manejar más datos, sino de manejar la **complejidad**. Al separar las responsabilidades y usar formatos columnares (Parquet), estamos preparando el terreno para que BigQuery analice terabytes en segundos.
+
 ## 🐳 Fase 5: Dockerización y CLI (Hacia Producción)
 
 Hasta ahora, hemos ejecutado el script manualmente cambiando las variables en el código. Pero en un entorno profesional (como Airflow), **nadie edita código para correr un proceso**. Los scripts deben ser flexibles y portátiles.
@@ -549,7 +567,7 @@ Prueba local: Ahora tu script exige parámetros.
 ```bash
 uv run src/ingestion/ingest_manager.py --year 2024 --month 2
 ```
-Esto debería descargar Febrero 2024 y subirlo al bucket `nyc-taxi-lakehouse-raw-branko/raw/yellow_tripdata/2024/02/data.parquet` .
+Esto debería descargar Febrero 2024 y subirlo al bucket `nyc-taxi-lakehouse-raw-tunombre/raw/yellow_tripdata/2024/02/data.parquet` .
 
 ### 2. Creando la Receta (Dockerfile)
 Un contenedor Docker es como una "caja virtual" que contiene tu código y todas sus dependencias (Python, librerías, sistema operativo base). Esto elimina el famoso problema de "en mi máquina funcionaba".
@@ -608,19 +626,19 @@ Aquí está el truco. El contenedor es aislado: no tiene acceso a tus archivos, 
 
 - `v $(pwd)/gcp_credentials:/app/gcp_credentials`: (Volumen) Conecta tu carpeta de credenciales local con una carpeta dentro del contenedor. Es como conectar un USB virtual.
 
-- `e VARIABLE=...`: (Environment) Le pasa las variables de entorno necesarias manualmente.
+- `-e GCS_BUCKET_NAME=...`: (Environment) Inyecta las variables de entorno necesarias (como el nombre del bucket) para que el script las reconozca dentro del contenedor.
 
 ```bash
 docker run --rm \
   --network host \
   -v $(pwd)/gcp_credentials:/app/gcp_credentials \
   -e GOOGLE_APPLICATION_CREDENTIALS=/app/gcp_credentials/terraform-key.json \
-  -e GCS_BUCKET_NAME="nyc-taxi-lakehouse-raw-TU-NOMBRE" \
+  -e GCS_BUCKET_NAME="nyc-taxi-lakehouse-raw-tunombre" \
   nyc-taxi-ingestor:v1 \
   --year 2023 --month 5
 ```
 
-Nota: Reemplaza `nyc-taxi-lakehouse-raw-TU-NOMBRE` con el nombre real de tu bucket si es diferente.
+Nota: Reemplaza `nyc-taxi-lakehouse-raw-tunombre` con el nombre real de tu bucket si es diferente.
 
 ¿Qué debería pasar?
 
@@ -635,6 +653,18 @@ Nota: Reemplaza `nyc-taxi-lakehouse-raw-TU-NOMBRE` con el nombre real de tu buck
 
 
 Resultado: Si ves los logs de descarga y subida exitosa, ¡felicidades! Tienes una aplicación de datos blindada, portable y lista para ser orquestada por Airflow.
+### 🏁 Parada Técnica: De Script a Producto (Dockerización)
+
+En esta etapa, hemos transformado un script de automatización en una **aplicación profesional lista para la nube**. Analicemos los pilares de este cambio:
+
+*   **¿Qué logramos?**: Pasamos de un código estático a una **herramienta CLI (Command Line Interface)**. Ahora el script no está "atado" a una configuración fija; es dinámico y puede procesar cualquier mes o año mediante parámetros.
+*   **¿Cómo lo hicimos?**:
+    *   **Argparse**: Implementamos una interfaz que permite al script recibir instrucciones externas, facilitando su integración con otros sistemas.
+    *   **Dockerfile**: Creamos una "receta" que garantiza que el código tenga exactamente las mismas librerías y versión de Python, sin importar si corre en Windows, Mac o Linux.
+    *   **Volúmenes y Variables**: Aprendimos a inyectar secretos (credenciales) y configuraciones sin dejar rastro dentro de la imagen, siguiendo las mejores prácticas de seguridad.
+*   **¿Por qué es vital?**: Porque en el mundo real, los datos no se procesan en tu laptop. Al dockerizar, tu tubería es **portátil y escalable**. Está lista para ser lanzada en un servidor remoto, en Kubernetes o, como veremos a continuación, ser controlada por un orquestador.
+
+**En resumen:** Has blindado tu código. Ya no es solo un script; es un componente de software robusto y aislado. 
 
 # 🌪️ Fase 6: Orquestación con Apache Airflow
 
@@ -736,7 +766,7 @@ x-airflow-common:
     - ./logs:/opt/airflow/logs
     - ./plugins:/opt/airflow/plugins
     - ./gcp_credentials:/opt/airflow/gcp_credentials
-    # 🔥 TRUCO SENIOR: Mapeamos el socket de Docker
+    # Mapeamos el socket de Docker
     # Esto permite que Airflow (dentro de un contenedor) pueda crear HERMANOS contenedores
     - /var/run/docker.sock:/var/run/docker.sock
   user: "${AIRFLOW_UID:-50000}:0"
@@ -846,7 +876,7 @@ AIRFLOW_PROJ_DIR=/home/TU_USUARIO/projects/nyc-taxi-lakehouse
 ```
 
 > [!IMPORTANT]
-> **Nota Senior: El misterio de las rutas en Docker-out-of-Docker (DooD)**
+> **Nota: El misterio de las rutas en Docker-out-of-Docker (DooD)**
 >
 > ¿Por qué no podemos usar rutas relativas o `os.path.abspath`?
 > 1. **Cajas dentro de cajas**: Airflow corre dentro de un contenedor. Si le pedimos a Python su ruta, dirá `/opt/airflow`.
@@ -952,7 +982,7 @@ if not BUCKET_NAME:
     raise ValueError("❌ Error Crítico: GCS_BUCKET_NAME no está definido en el entorno de Airflow.")
 
 default_args = {
-    'owner': 'branko',
+    'owner': 'airflow',
     'depends_on_past': False,
     'email_on_failure': False,
     'email_on_retry': False,
@@ -1016,7 +1046,7 @@ with DAG(
 
 ---
 
-Si ves la tarea en **verde oscuro (Success)** en la interfaz de Airflow y confirmas que el archivo nuevo apareció en tu Google Cloud Storage, **¡has desbloqueado un logro nivel Senior!** 🏆
+Si ves la tarea en **verde oscuro (Success)** en la interfaz de Airflow y confirmas que el archivo nuevo apareció en tu Google Cloud Storage, **¡has desbloqueado un nuevo logro!** 🏆
 
 Acabas de implementar con éxito una de las arquitecturas más complejas de orquestación local: **Docker-out-of-Docker (DooD)**.
 
@@ -1046,8 +1076,8 @@ git push origin main
 
 En esta fase, conectamos nuestro Data Lake (GCS) con nuestro Data Warehouse (BigQuery). Lo haremos sin mover los archivos, usando **Tablas Externas**. Esto es lo que define un **Data Lakehouse**: la potencia analítica de SQL sobre la flexibilidad de un almacenamiento de objetos.
 
-### 1. ¿Por qué renombrar los Datasets?
-Como Data Engineer, buscamos que los nombres sean intuitivos. Cambiamos el dataset genérico por nombres que reflejen la **Arquitectura Medallion**:
+### 1. Definir la Nomenclatura de los Datasets
+Como Data Engineer, buscamos que los nombres sean intuitivos. Cambiaremos el dataset genérico por nombres que reflejen la **Arquitectura Medallion**:
 - `nyc_taxi_bronze`: Donde viven los datos crudos.
 - `nyc_taxi_silver`: Donde viven los datos limpios.
 
@@ -1084,6 +1114,18 @@ resource "google_bigquery_table" "external_yellow_taxi" {
 Luego ejecuta `terraform apply` para crear estos nuevos recursos.
 
 ---
+### Zero-Copy Ingestion
+
+Es probable que te preguntes: *¿En qué momento ejecutamos el comando para cargar los datos a BigQuery?* La respuesta es: **Nunca**.
+
+Gracias a las **Tablas Externas**, hemos implementado **Zero-Copy Ingestion**. Esto cambia las reglas del juego:
+
+*   **💰 Almacenamiento (Costo $0 en BigQuery):** Si revisas los detalles de la tabla `external_yellow_taxi` en la consola de Google Cloud, verás que su tamaño es `0 bytes`. Esto es porque los datos físicamente residen en el Bucket de GCS. BigQuery solo actúa como una "capa de lectura" inteligente. Estás pagando el precio de almacenamiento de GCS (mucho más barato) pero con la potencia de BigQuery.
+*   **⚡ Publicación Instantánea:** En cuanto tu script de Python termina de subir un archivo `.parquet` al bucket, los datos están disponibles para ser consultados por SQL. No hay procesos de carga (*Load Jobs*) que esperar ni fallos de ingesta por falta de espacio.
+*   **🚀 Rendimiento:** Aunque las tablas externas son ligeramente más lentas que las tablas nativas de BigQuery, al usar el formato **Parquet** (que es columnar), BigQuery solo lee las columnas necesarias de los archivos en GCS. Esto optimiza drásticamente el rendimiento y reduce los costos de consulta.
+*   **🏗️ Arquitectura Desacoplada:** Esta es la esencia de un **Data Lakehouse**. Puedes tener a tus ingenieros de datos subiendo archivos a GCS y, al mismo tiempo, a tus analistas consultando esos mismos archivos vía SQL en BigQuery, sin que un proceso bloquee al otro.
+
+**En resumen:** La capa **Bronze** no es una base de datos física, es un "espejo" de tu Data Lake.
 
 ## 🛠️ Fase 9: Transformación Profesional con dbt
 
@@ -1108,8 +1150,17 @@ models:
       +schema: nyc_taxi_silver
       +materialized: incremental
 ```
+**¿Qué significan estas líneas clave?**
+
+*   **name**: El identificador único de tu proyecto dbt.
+*   **profile**: Vincula este proyecto con el perfil de conexión que definiremos en `profiles.yml`.
+*   **models**: Define la jerarquía de transformación y su **materialización**:
+    *   **`view` (Vista)**: Es una tabla virtual que no almacena datos físicamente. Cada vez que la consultas, BigQuery ejecuta el SQL subyacente. Es ideal para la capa **Staging** porque garantiza que siempre veas los datos más frescos sin incurrir en costos de almacenamiento adicionales.
+    *   **`incremental`**: Es una tabla física que solo procesa e inserta los registros nuevos desde la última ejecución. En lugar de reconstruir millones de filas cada vez (lo cual sería lento y costoso), dbt solo añade el "delta" de datos. Es la estrategia recomendada para la capa **Silver** para optimizar el rendimiento y el presupuesto de la nube.
+---
 
 **`profiles.yml`**: Contiene las credenciales técnicas. **Nota:** Usamos una ruta relativa para el `keyfile` para que funcione tanto en local como en Docker.
+
 ```yaml
 nyc_taxi_profile:
   target: dev
@@ -1123,6 +1174,16 @@ nyc_taxi_profile:
       keyfile: ../gcp_credentials/terraform-key.json
       location: us-central1
 ```
+
+**Desglose de la configuración:**
+
+*   **`type: bigquery`**: Especifica que el motor de base de datos es Google BigQuery.
+*   **`method: service-account`**: Define el uso de una cuenta de servicio para la autenticación.
+*   **`project`**: El ID de tu proyecto en Google Cloud Platform.
+*   **`dataset`**: El dataset base para las operaciones de dbt.
+*   **`threads`**: Número de hilos para ejecutar modelos en paralelo.
+*   **`keyfile`**: Ruta relativa al archivo JSON de credenciales.
+*   **`location`**: Región de GCP donde se procesarán los datos.
 
 ### 2. Limpieza de Nombres (Macros)
 Por defecto, dbt añade prefijos a los nombres de los datasets. Para evitar esto y tener nombres limpios, creamos una macro en `dbt_project/macros/generate_schema_name.sql`:

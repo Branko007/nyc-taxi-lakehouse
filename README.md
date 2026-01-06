@@ -1,9 +1,9 @@
 # 🚕 NYC Taxi Data Lakehouse
 
-![Data Engineering](https://img.shields.io/badge/Data%20Engineering-Senior-blue)
+![Data Engineering](https://img.shields.io/badge/Data%20Engineering-blue)
 ![GCP](https://img.shields.io/badge/Cloud-GCP-green)
 ![Terraform](https://img.shields.io/badge/IaC-Terraform-purple)
-![Python](https://img.shields.io/badge/Language-Python%203.9+-yellow)
+![Python](https://img.shields.io/badge/Language-Python%203.10-yellow)
 ![Airflow](https://img.shields.io/badge/Orchestration-Airflow-red)
 
 Este proyecto implementa una arquitectura de **Data Lakehouse** profesional para el procesamiento de datos masivos de los taxis de Nueva York (NYC Taxi & Limousine Commission). El objetivo es demostrar un flujo end-to-end robusto, escalable y automatizado, siguiendo las mejores prácticas de la industria.
@@ -42,7 +42,7 @@ El sistema está diseñado bajo el paradigma de **Infraestructura como Código (
 
 ## 🚀 Puesta en Marcha
 
-Como Data Engineer Senior, he diseñado este proceso para que sea reproducible y seguro.
+Como Data Engineer, he diseñado este proceso para que sea reproducible y seguro.
 
 ### 1. Preparación de Credenciales
 1. Crea un proyecto en GCP.
@@ -104,4 +104,4 @@ Accede a la interfaz en `http://localhost:8080` (User/Pass: `admin`/`admin`).
 *   **Docker out of Docker**: Airflow configurado para lanzar tareas en contenedores hermanos, manteniendo el orquestador limpio.
 
 ---
-*Desarrollado con ❤️ por un Data Engineer Senior para la comunidad.*
+*Desarrollado con ❤️ por un Data Engineer para la comunidad.*

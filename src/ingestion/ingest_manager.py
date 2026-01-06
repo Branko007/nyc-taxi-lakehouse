@@ -49,7 +49,7 @@ class TaxiIngestor:
             response.raise_for_status() # Lanza error si 404/500
 
             with open(local_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192): #Sig
+                for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
             
             logging.info(f"✅ Archivo descargado en: {local_path}")
