@@ -104,4 +104,3 @@ Accede a la interfaz en `http://localhost:8080` (User/Pass: `admin`/`admin`).
 *   **Docker out of Docker**: Airflow configurado para lanzar tareas en contenedores hermanos, manteniendo el orquestador limpio.
 
 ---
-*Desarrollado con ❤️ por un Data Engineer para la comunidad.*
